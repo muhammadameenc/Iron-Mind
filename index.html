@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IRON MIND Tracker</title>
+
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/png" href="./iron-mind-icon.png">
+</head>
+<body>
+
+    <!-- ================= HOME PAGE ================= -->
+
+    <div id="homePage">
+
+        <!-- Top Dashboard -->
+        <div class="top-dashboard">
+
+            <!-- Progress Section -->
+            <div class="dashboard-box">
+
+                <canvas id="progressCanvas"
+                        width="170"
+                        height="170">
+                </canvas>
+
+                <h3 id="todayStats">
+                    Today: 0 / 0
+                </h3>
+
+            </div>
+
+            <!-- Title -->
+            <div class="dashboard-center">
+
+               <div class="title-image-box">
+                   <img src="./iron-mind-title.png" alt="IRON MIND" class="title-image">
+                  <div class="premium-title">IRON MIND</div>
+               </div>
+
+
+            </div>
+
+            <!-- Not Completed -->
+            <div class="dashboard-box">
+
+                <div id="notCompletedBox">
+
+                    <h2 id="notCompletedCount">0</h2>
+
+                    <p>Not Completed</p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+       <!-- Add Subject Button -->
+       <div class="subject-action-row">
+
+          <button id="addSubjectButton">
+              + Add Subject
+          </button>
+
+       </div>
+
+       <!-- Subject Buttons -->
+       <div id="subjectGrid">
+
+       </div>
+
+    </div>
+
+    <!-- ================= SUBJECT PAGE ================= -->
+
+    <div id="subjectPage" class="hidden">
+
+        <!-- Header -->
+        <div class="subject-header">
+
+            <button id="backButton">
+                ← Back
+            </button>
+
+            <h2 id="subjectTitle">
+                Subject
+            </h2>
+
+            <div id="subjectProgress">
+                Progress: 0%
+            </div>
+
+            <button id="addTaskButton">
+                + Add Task
+            </button>
+
+        </div>
+
+        <!-- Task Area -->
+        <div id="taskContainer">
+
+        </div>
+
+    </div>
+<!-- ================= ADD SUBJECT MODAL ================= -->
+
+<div id="subjectModal" class="modal hidden" role="dialog" aria-labelledby="subjectModalTitle">
+
+    <div class="modal-content">
+
+        <h2 id="subjectModalTitle">Add Subject</h2>
+
+        <input
+            type="text"
+            id="subjectNameInput"
+            placeholder="Subject Name"
+        >
+
+        <div class="priority-group">
+            <span class="priority-label">Importance</span>
+
+            <div class="priority-options">
+                <label class="priority-option high">
+                    <input type="radio" name="subjectPriority" value="high" checked>
+                    Most important
+                </label>
+
+                <label class="priority-option core">
+                    <input type="radio" name="subjectPriority" value="core">
+                    Medium
+                </label>
+
+                <label class="priority-option support">
+                    <input type="radio" name="subjectPriority" value="support">
+                    Less important
+                </label>
+            </div>
+        </div>
+
+        <div class="modal-buttons">
+
+            <button id="saveSubjectBtn" type="button">
+                Create
+            </button>
+
+            <button id="cancelSubjectBtn" type="button">
+                Cancel
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+<div id="deleteConfirmModal" class="modal hidden" role="dialog" aria-labelledby="deleteConfirmTitle">
+    <div class="modal-content delete-modal-content">
+        <h2 id="deleteConfirmTitle">Delete Subject</h2>
+        <p id="deleteConfirmMessage">Are you sure you want to delete this subject?</p>
+        <div class="modal-buttons delete-modal-buttons">
+            <button id="confirmDeleteBtn" type="button">Yes</button>
+            <button id="cancelDeleteBtn" type="button">No</button>
+        </div>
+    </div>
+</div>
+
+    <!-- ================= ADD TASK MODAL ================= -->
+
+    <div id="taskModal" class="modal hidden">
+
+        <div class="modal-content">
+
+            <h2 id="taskModalTitle">Add Task</h2>
+
+            <input
+                type="text"
+                id="topicInput"
+                placeholder="Topic Name"
+            >
+
+            <input
+                type="text"
+                id="sourceInput"
+                placeholder="Source"
+            >
+
+            <input
+                type="date"
+                id="dateInput"
+            >
+
+            <textarea
+                id="remarksInput"
+                placeholder="Remarks">
+            </textarea>
+
+            <div class="modal-buttons">
+
+                <button id="saveTaskBtn">
+                    Save Task
+                </button>
+
+                <button id="cancelTaskBtn">
+                    Cancel
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- ================= TASK CARD TEMPLATE ================= -->
+
+    <template id="taskTemplate">
+
+        <div class="task-card">
+
+            <div class="task-topic"></div>
+
+            <div class="task-source"></div>
+
+            <div class="task-date"></div>
+
+            <textarea
+                class="task-remarks">
+            </textarea>
+
+            <select class="task-status">
+
+                <option>
+                    Planned
+                </option>
+
+                <option>
+                    Halfway
+                </option>
+
+                <option>
+                    Completed
+                </option>
+
+                <option>
+                    Not Completed
+                </option>
+
+            </select>
+
+            <div class="task-actions">
+                <button class="edit-btn">
+                    Edit
+                </button>
+
+                <button class="delete-btn">
+                    Delete
+                </button>
+            </div>
+
+        </div>
+
+    </template>
+
+    <script src="script.js"></script>
+
+</body>
+</html>
