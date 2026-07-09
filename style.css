@@ -441,10 +441,20 @@ body{
     padding-bottom:12px;
 }
 
-.subject-header.empty-state #backButton,
+
 .subject-header.empty-state #subjectTitle,
 .subject-header.empty-state #subjectProgress{
     display:none;
+}
+
+.subject-header.empty-state #backButton{
+    /* keep the back button visible in empty state and take it out of the flow
+       so the Add Task button can be exactly centered */
+    display:block;
+    position:absolute;
+    left:18px;
+    top:14px;
+    margin:0;
 }
 
 .subject-header.empty-state #addTaskButton{
