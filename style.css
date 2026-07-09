@@ -4,7 +4,7 @@
     margin:0;
     padding:0;
     box-sizing:border-box;
-    font-family:Arial, Helvetica, sans-serif;
+    font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 body{
@@ -53,13 +53,74 @@ body{
     padding:25px 60px;
 }
 
-.dashboard-center h1{
+.title-image-box{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:10px;
 }
 
-.dashboard-center p{
-    color:#9ca3af;
-    margin-top:10px;
-    font-size:18px;
+.hero-title{
+    font-family:'Trebuchet MS', 'Segoe UI', sans-serif;
+    font-size:38px;
+    font-weight:800;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    line-height:1.1;
+    color:#f8fafc;
+    background:linear-gradient(90deg, #f8fafc 0%, #c084fc 45%, #34d399 100%);
+    -webkit-background-clip:text;
+    background-clip:text;
+    -webkit-text-fill-color:transparent;
+    text-shadow:0 0 24px rgba(192,132,252,0.22);
+    animation:titleGlow 3.2s ease-in-out infinite alternate;
+}
+
+.hero-slogan{
+    font-family:'Georgia', 'Times New Roman', serif;
+    color:#e2e8f0;
+    font-size:17px;
+    font-weight:600;
+    letter-spacing:0.16em;
+    text-transform:uppercase;
+    opacity:0.95;
+    position:relative;
+    display:inline-block;
+    padding-bottom:6px;
+}
+
+.hero-slogan::after{
+    content:"";
+    position:absolute;
+    left:50%;
+    bottom:0;
+    width:70%;
+    height:2px;
+    transform:translateX(-50%);
+    background:linear-gradient(90deg, transparent, #34d399, transparent);
+    animation:sloganLine 2.2s ease-in-out infinite;
+}
+
+@keyframes titleGlow{
+    from{
+        transform:translateY(0);
+        text-shadow:0 0 18px rgba(192,132,252,0.18);
+    }
+    to{
+        transform:translateY(-2px);
+        text-shadow:0 0 28px rgba(52,211,153,0.24);
+    }
+}
+
+@keyframes sloganLine{
+    0%, 100%{
+        opacity:0.45;
+        width:55%;
+    }
+    50%{
+        opacity:1;
+        width:100%;
+    }
 }
 
 #todayStats{
@@ -142,6 +203,38 @@ body{
 
 #addSubjectButton:hover{
     background:#16a34a;
+}
+
+@media (max-width: 767px) {
+    .top-dashboard{
+        padding:20px 20px 24px;
+        min-height:auto;
+    }
+
+    .dashboard-center{
+        padding:16px 20px 8px;
+    }
+
+    .hero-title{
+        font-size:28px;
+        letter-spacing:0.14em;
+    }
+
+    .hero-slogan{
+        font-size:13px;
+        letter-spacing:0.12em;
+    }
+
+    .subject-action-row{
+        width:100%;
+        padding:20px 20px 0;
+        justify-content:center;
+    }
+
+    #addSubjectButton{
+        width:min(220px, 100%);
+        margin:0 auto;
+    }
 }
 
 /* ================= SUBJECT BUTTONS ================= */
