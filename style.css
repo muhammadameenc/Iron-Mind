@@ -273,6 +273,29 @@ body{
         border-radius:16px;
     }
 
+    /* Mobile: make the Add Task button prominent and exactly centered when empty */
+    .subject-header.empty-state{
+        padding:18px 16px 14px;
+    }
+
+    .subject-header.empty-state #addTaskButton{
+        width: min(86vw, 360px);
+        height: 60px;
+        border-radius: 18px;
+        margin: 0 auto;
+        background: #22c55e; /* green to match Add Subject */
+        color: white;
+        font-size: 18px;
+        font-weight: 700;
+        box-shadow: 0 10px 30px rgba(34,197,94,0.12);
+    }
+
+    /* Ensure when not empty the button stays top-right on mobile */
+    .subject-header:not(.empty-state) #addTaskButton{
+        margin-left: auto;
+        background: #7c3aed; /* keep original purple when tasks exist */
+    }
+
     #subjectGrid{
         padding:20px 20px 30px;
         gap:20px;
@@ -413,6 +436,9 @@ body{
 .subject-header.empty-state{
     justify-content:center;
     position:relative;
+    align-items:flex-start; /* place button near top */
+    padding-top:14px;
+    padding-bottom:12px;
 }
 
 .subject-header.empty-state #backButton,
