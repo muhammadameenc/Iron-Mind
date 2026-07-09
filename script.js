@@ -313,6 +313,18 @@ function openSubjectPage(subjectName){
     }
 }
 
+function updateAddTaskButtonLayout(taskCount = 0){
+
+    if(!subjectHeader){
+        return;
+    }
+
+    subjectHeader.classList.toggle(
+        "empty-state",
+        taskCount === 0
+    );
+}
+
 function goHome(){
 
     subjectPage.classList.add("hidden");
@@ -780,6 +792,9 @@ const taskModal =
 const addTaskButton =
     document.getElementById("addTaskButton");
 
+const subjectHeader =
+    document.querySelector(".subject-header");
+
 const saveTaskBtn =
     document.getElementById("saveTaskBtn");
 
@@ -1040,6 +1055,10 @@ function renderTasks(){
             task =>
             task.subject === currentSubject
         );
+
+    updateAddTaskButtonLayout(
+        subjectTasks.length
+    );
 
     subjectTasks.sort((a,b)=>{
 

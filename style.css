@@ -207,12 +207,47 @@ body{
 
 @media (max-width: 767px) {
     .top-dashboard{
-        padding:20px 20px 24px;
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        align-items:center;
+        gap:14px 14px;
+        padding:18px 18px 12px;
         min-height:auto;
     }
 
+    .dashboard-box{
+        min-height:0;
+    }
+
     .dashboard-center{
-        padding:16px 20px 8px;
+        grid-column:1 / -1;
+        padding:8px 12px 4px;
+    }
+
+    #progressCanvas{
+        width:126px;
+        height:126px;
+    }
+
+    #notCompletedBox{
+        width:120px;
+        height:120px;
+        border-radius:22px;
+        border-width:3px;
+    }
+
+    #notCompletedCount{
+        font-size:36px;
+    }
+
+    #notCompletedBox p{
+        font-size:15px;
+        margin-top:6px;
+    }
+
+    #todayStats{
+        margin-top:10px;
+        font-size:14px;
     }
 
     .hero-title{
@@ -227,13 +262,20 @@ body{
 
     .subject-action-row{
         width:100%;
-        padding:20px 20px 0;
+        padding:16px 20px 0;
         justify-content:center;
     }
 
     #addSubjectButton{
-        width:min(220px, 100%);
+        width:min(78vw, 320px);
+        height:58px;
         margin:0 auto;
+        border-radius:16px;
+    }
+
+    #subjectGrid{
+        padding:20px 20px 30px;
+        gap:20px;
     }
 }
 
@@ -366,6 +408,24 @@ body{
     gap:20px;
 
     padding:20px;
+}
+
+.subject-header.empty-state{
+    justify-content:center;
+    position:relative;
+}
+
+.subject-header.empty-state #backButton,
+.subject-header.empty-state #subjectTitle,
+.subject-header.empty-state #subjectProgress{
+    display:none;
+}
+
+.subject-header.empty-state #addTaskButton{
+    margin-left:0;
+    width:220px;
+    height:52px;
+    border-radius:16px;
 }
 
 #backButton{
