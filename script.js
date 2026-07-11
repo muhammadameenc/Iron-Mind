@@ -40,11 +40,53 @@ let editingSubjectIndex = null;
 const homePage =
     document.getElementById("homePage");
 
+const searchPage =
+    document.getElementById("searchPage");
+
+const statisticsPage =
+    document.getElementById("statisticsPage");
+
 const subjectPage =
     document.getElementById("subjectPage");
 
 const subjectGrid =
     document.getElementById("subjectGrid");
+
+const todayTasksList =
+    document.getElementById("todayTasksList");
+
+const subjectFilterList =
+    document.getElementById("subjectFilterList");
+
+const searchInput =
+    document.getElementById("searchInput");
+
+const searchResults =
+    document.getElementById("searchResults");
+
+const summaryStats =
+    document.getElementById("summaryStats");
+
+const subjectPerformanceBars =
+    document.getElementById("subjectPerformanceBars");
+
+const weeklyBars =
+    document.getElementById("weeklyBars");
+
+const monthlyGrid =
+    document.getElementById("monthlyGrid");
+
+const distributionDonut =
+    document.getElementById("distributionDonut");
+
+const distributionLegend =
+    document.getElementById("distributionLegend");
+
+const achievementCards =
+    document.getElementById("achievementCards");
+
+const insightsList =
+    document.getElementById("insightsList");
 
 const subjectTitle =
     document.getElementById("subjectTitle");
@@ -69,6 +111,60 @@ const progressCanvas =
 const addSubjectButton =
     document.getElementById("addSubjectButton");
 
+const footerActions =
+    addSubjectButton.closest(".footer-actions");
+
+const settingsButton =
+    document.getElementById("settingsButton");
+
+const settingsOverlay =
+    document.getElementById("settingsOverlay");
+
+const closeSettingsButton =
+    document.getElementById("closeSettingsButton");
+
+const autoDeleteSelect =
+    document.getElementById("autoDeleteSelect");
+
+const customDeleteDays =
+    document.getElementById("customDeleteDays");
+
+const customDeleteDaysWrap =
+    document.getElementById("customDeleteDaysWrap");
+
+const helpPage =
+    document.getElementById("helpPage");
+
+const aboutPage =
+    document.getElementById("aboutPage");
+
+const tabButtons =
+    Array.from(document.querySelectorAll(".tab-btn"));
+
+let activeTab = "home";
+let selectedSubjectFilter = "all";
+const subjectTaskView = { status: "all", date: "all", sort: "normal" };
+const searchTaskView = { status: "all", date: "all", sort: "normal" };
+
+const defaultSettings = {
+    autoDelete: "never",
+    customDeleteDays: "",
+    accent: "purple"
+};
+
+function getStoredSettings(){
+    try{
+        return JSON.parse(localStorage.getItem("ironMindSettings") || "{}");
+    } catch(error){
+        return {};
+    }
+}
+
+let appSettings = {
+    ...defaultSettings,
+    ...getStoredSettings()
+};
+
 const subjectModal =
     document.getElementById("subjectModal");
 
@@ -83,6 +179,131 @@ const saveSubjectBtn =
 
 const subjectModalTitle =
     document.getElementById("subjectModalTitle");
+
+const quoteText =
+    document.getElementById("quoteText");
+
+const quoteDots =
+    document.getElementById("quoteDots");
+
+const quoteCard =
+    document.getElementById("quoteCard");
+
+const quotes = [
+    "Discipline beats motivation.",
+    "Progress over perfection.",
+    "Consistency creates champions."
+];
+
+let currentQuoteIndex = 0;
+
+function renderQuote(index, direction = "next"){
+    if(!quoteText || !quoteDots) return;
+
+    quoteText.classList.remove("slide-out-left", "slide-out-right");
+    quoteText.classList.add(direction === "prev" ? "slide-out-right" : "slide-out-left");
+
+    setTimeout(() => {
+        quoteText.textContent = quotes[index];
+        quoteText.classList.remove("slide-out-left", "slide-out-right");
+        quoteText.classList.add("slide-in");
+        requestAnimationFrame(() => {
+            quoteText.classList.remove("slide-in");
+        });
+    }, 180);
+
+    quoteDots.querySelectorAll(".quote-dot").forEach((dot, dotIndex) => {
+        dot.classList.toggle("active", dotIndex === index);
+    });
+
+    if(quoteCard){
+        quoteCard.classList.remove("quote-1", "quote-2", "quote-3");
+        quoteCard.classList.add(`quote-${index + 1}`);
+    }
+}
+
+function rotateQuotes(){
+    currentQuoteIndex = (currentQuoteIndex + 1) % quotes.length;
+    renderQuote(currentQuoteIndex, "next");
+}
+
+function changeQuote(step){
+    currentQuoteIndex = (currentQuoteIndex + step + quotes.length) % quotes.length;
+    renderQuote(currentQuoteIndex, step < 0 ? "prev" : "next");
+}
+
+function initQuotes(){
+    if(!quoteText || !quoteDots) return;
+
+    quoteDots.innerHTML = "";
+    quotes.forEach((_, index) => {
+        const dot = document.createElement("span");
+        dot.className = "quote-dot";
+        if(index === 0){
+            dot.classList.add("active");
+        }
+        quoteDots.appendChild(dot);
+    });
+
+    renderQuote(0, "next");
+    setInterval(rotateQuotes, 5000);
+
+    let startX = 0;
+    let isDragging = false;
+
+    const handleSwipe = (deltaX) => {
+        if(Math.abs(deltaX) > 45){
+            changeQuote(deltaX < 0 ? 1 : -1);
+        }
+    };
+
+    quoteCard?.addEventListener("mousedown", event => {
+        startX = event.clientX;
+        isDragging = true;
+    });
+
+    quoteCard?.addEventListener("mousemove", event => {
+        if(!isDragging) return;
+        const deltaX = event.clientX - startX;
+        if(Math.abs(deltaX) > 20){
+            quoteText.style.transform = `translateX(${deltaX}px)`;
+        }
+    });
+
+    quoteCard?.addEventListener("mouseup", event => {
+        if(!isDragging) return;
+        const deltaX = event.clientX - startX;
+        handleSwipe(deltaX);
+        quoteText.style.transform = "";
+        isDragging = false;
+    });
+
+    quoteCard?.addEventListener("mouseleave", () => {
+        quoteText.style.transform = "";
+        isDragging = false;
+    });
+
+    quoteCard?.addEventListener("touchstart", event => {
+        startX = event.touches[0].clientX;
+        isDragging = true;
+    }, { passive: true });
+
+    quoteCard?.addEventListener("touchmove", event => {
+        if(!isDragging) return;
+        const deltaX = event.touches[0].clientX - startX;
+        if(Math.abs(deltaX) > 20){
+            quoteText.style.transform = `translateX(${deltaX}px)`;
+        }
+    }, { passive: true });
+
+    quoteCard?.addEventListener("touchend", event => {
+        if(!isDragging) return;
+        const deltaX = event.changedTouches[0].clientX - startX;
+        handleSwipe(deltaX);
+        quoteText.style.transform = "";
+        isDragging = false;
+    });
+}
 
 const deleteConfirmModal =
     document.getElementById("deleteConfirmModal");
@@ -134,6 +355,60 @@ function saveSubjects(){
         JSON.stringify(subjects)
     );
 }
+
+function saveSettings(){
+    localStorage.setItem("ironMindSettings", JSON.stringify(appSettings));
+}
+
+const accentPresets = {
+    purple: { accent: "#7C4DFF", bright: "#A78BFA", soft: "rgba(124,77,255,0.24)" },
+    blue: { accent: "#2563EB", bright: "#38BDF8", soft: "rgba(37,99,235,0.24)" },
+    green: { accent: "#16A34A", bright: "#4ADE80", soft: "rgba(22,163,74,0.24)" },
+    orange: { accent: "#EA580C", bright: "#FB923C", soft: "rgba(234,88,12,0.24)" }
+};
+
+function applyAccentColor(){
+    const accent = accentPresets[appSettings.accent] || accentPresets.purple;
+    document.documentElement.style.setProperty("--accent", accent.accent);
+    document.documentElement.style.setProperty("--accent-bright", accent.bright);
+    document.documentElement.style.setProperty("--accent-soft", accent.soft);
+}
+
+function syncSettingsUI(){
+    if(!autoDeleteSelect) return;
+
+    autoDeleteSelect.value = appSettings.autoDelete;
+    customDeleteDays.value = appSettings.customDeleteDays;
+    customDeleteDaysWrap.classList.toggle("hidden", appSettings.autoDelete !== "custom");
+
+    document.querySelectorAll("[data-accent]").forEach(button => {
+        button.classList.toggle("active", button.dataset.accent === appSettings.accent);
+    });
+}
+
+function closeSettingsPanel(){
+    settingsOverlay.classList.remove("is-open");
+    settingsOverlay.setAttribute("aria-hidden", "true");
+    settingsButton.setAttribute("aria-expanded", "false");
+}
+
+function openSettingsPanel(){
+    settingsOverlay.classList.add("is-open");
+    settingsOverlay.setAttribute("aria-hidden", "false");
+    settingsButton.setAttribute("aria-expanded", "true");
+}
+
+function openSettingsPage(page){
+    closeSettingsPanel();
+    document.querySelectorAll(".page").forEach(currentPage => {
+        currentPage.classList.toggle("hidden", currentPage !== page);
+    });
+    footerActions.classList.add("hidden");
+}
+
+function returnFromSettingsPage(){
+    showTab(activeTab);
+}
 /* ================= DATE HELPERS ================= */
 
 function getTodayDate(){
@@ -184,12 +459,87 @@ function getPriorityRank(priority){
 function closeAllSubjectMenus(){
     document.querySelectorAll(".subject-menu").forEach(menu => {
         menu.classList.add("hidden");
+        if(menu.menuOwner && menu.parentElement !== menu.menuOwner){
+            menu.menuOwner.appendChild(menu);
+        }
     });
+}
+
+function positionSubjectMenu(menu, trigger){
+    const gap = 8;
+    const viewportPadding = 12;
+    const triggerBounds = trigger.getBoundingClientRect();
+    const menuBounds = menu.getBoundingClientRect();
+    const openAbove =
+        window.innerHeight - triggerBounds.bottom < menuBounds.height + gap &&
+        triggerBounds.top > menuBounds.height + gap;
+    const top = openAbove
+        ? triggerBounds.top - menuBounds.height - gap
+        : triggerBounds.bottom + gap;
+
+    menu.style.top = `${Math.max(viewportPadding, Math.min(top, window.innerHeight - menuBounds.height - viewportPadding))}px`;
+    menu.style.left = `${Math.max(viewportPadding, Math.min(triggerBounds.right - menuBounds.width, window.innerWidth - menuBounds.width - viewportPadding))}px`;
+}
+
+function showTab(tabName){
+    activeTab = tabName;
+
+    const visiblePageIds = {
+        home: ["homePage"],
+        search: ["searchPage"],
+        stats: ["statisticsPage"]
+    };
+
+    document.querySelectorAll(".page").forEach(page => {
+        const shouldShow = visiblePageIds[tabName]?.includes(page.id);
+        page.classList.toggle("hidden", !shouldShow);
+    });
+
+    if(subjectPage){
+        subjectPage.classList.add("hidden");
+    }
+
+    tabButtons.forEach(button => {
+        button.classList.toggle("active", button.dataset.tab === tabName);
+    });
+
+    footerActions.classList.toggle(
+        "hidden",
+        tabName !== "home"
+    );
+    settingsButton.style.display =
+        tabName === "home" ? "flex" : "none";
+
+    if(tabName === "search"){
+        renderSubjectFilters();
+        renderSearchResults();
+    }
+
+    if(tabName === "stats"){
+        renderStatistics();
+    }
 }
 
 function buildSubjects(){
 
+    closeAllSubjectMenus();
     subjectGrid.innerHTML = "";
+    renderTodayTasks();
+    renderSubjectFilters();
+    renderSearchResults();
+    renderStatistics();
+
+    if(subjects.length === 0){
+        const emptyState = document.createElement("div");
+        emptyState.className = "empty-state-card";
+        emptyState.innerHTML = `
+            <div class="empty-state-icon">📖</div>
+            <div class="empty-state-title">No subjects yet.</div>
+            <div class="empty-state-text">Start building your Iron Mind.</div>
+        `;
+        subjectGrid.appendChild(emptyState);
+        return;
+    }
 
     const sortedSubjects =
         subjects.map((subject,index)=>({
@@ -215,8 +565,39 @@ function buildSubjects(){
             subject.priority
         );
 
-        button.textContent =
-            subject.name;
+        const icon =
+            subject.priority === "high"
+                ? "📚"
+                : subject.priority === "core"
+                    ? "📖"
+                    : "📘";
+
+        const subtitle =
+            subject.priority === "high"
+                ? "Priority focus"
+                : subject.priority === "core"
+                    ? "Steady progress"
+                    : "Light review";
+
+        const iconSpan = document.createElement("span");
+        iconSpan.className = "subject-icon";
+        iconSpan.textContent = icon;
+
+        const textWrap = document.createElement("span");
+        textWrap.className = "subject-text";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "subject-name";
+        nameSpan.textContent = subject.name;
+
+        const subtitleSpan = document.createElement("span");
+        subtitleSpan.className = "subject-subtitle";
+        subtitleSpan.textContent = subtitle;
+
+        textWrap.appendChild(nameSpan);
+        textWrap.appendChild(subtitleSpan);
+        button.appendChild(iconSpan);
+        button.appendChild(textWrap);
 
         button.addEventListener(
             "click",
@@ -243,7 +624,9 @@ function buildSubjects(){
         menuButton.addEventListener("click", event => {
             event.stopPropagation();
             closeAllSubjectMenus();
-            subjectMenu.classList.toggle("hidden");
+            document.body.appendChild(subjectMenu);
+            subjectMenu.classList.remove("hidden");
+            positionSubjectMenu(subjectMenu, menuButton);
         });
 
         const subjectMenu =
@@ -252,6 +635,7 @@ function buildSubjects(){
             "subject-menu",
             "hidden"
         );
+        subjectMenu.menuOwner = actionContainer;
 
         const createMenuItem = (text, action) => {
             const item = document.createElement("button");
@@ -298,9 +682,14 @@ function buildSubjects(){
 function openSubjectPage(subjectName){
 
     currentSubject = subjectName;
+    closeSettingsPanel();
+    settingsButton.style.display = "none";
 
     homePage.classList.add("hidden");
-
+    searchPage.classList.add("hidden");
+    statisticsPage.classList.add("hidden");
+    subjectPage.classList.remove("hidden");
+    document.querySelectorAll(".page").forEach(page => page.classList.add("hidden"));
     subjectPage.classList.remove("hidden");
 
     subjectTitle.textContent =
@@ -328,9 +717,10 @@ function updateAddTaskButtonLayout(taskCount = 0){
 function goHome(){
 
     subjectPage.classList.add("hidden");
-
     homePage.classList.remove("hidden");
-
+    searchPage.classList.add("hidden");
+    statisticsPage.classList.add("hidden");
+    showTab("home");
     refreshDashboard();
 }
 
@@ -395,7 +785,7 @@ function getGlobalStats(){
 
     const notCompleted =
         tasks.filter(
-            t => t.status === "Not Completed"
+            t => t.status === "Missed"
         ).length;
 
     let progress = 0;
@@ -467,10 +857,10 @@ function drawProgressCircle(progress){
         progressCanvas.height
     );
 
-    const centerX = 85;
-    const centerY = 85;
+    const centerX = 90;
+    const centerY = 90;
 
-    const radius = 60;
+    const radius = 72;
 
     /* BASE RING */
 
@@ -483,7 +873,7 @@ function drawProgressCircle(progress){
         Math.PI * 2
     );
 
-    ctx.lineWidth = 14;
+    ctx.lineWidth = 16;
     ctx.strokeStyle = "#1e293b";
     ctx.stroke();
 
@@ -512,27 +902,27 @@ function drawProgressCircle(progress){
         endAngle
     );
 
-    ctx.lineWidth = 12;
+    ctx.lineWidth = 16;
     ctx.strokeStyle = color;
     ctx.stroke();
 
     ctx.fillStyle = "white";
-    ctx.font = "bold 26px Arial";
+    ctx.font = "bold 36px Arial";
     ctx.textAlign = "center";
 
     ctx.fillText(
         progress + "%",
         centerX,
-        centerY - 5
+        centerY - 8
     );
 
     ctx.fillStyle = "#9ca3af";
-    ctx.font = "12px Arial";
+    ctx.font = "16px Arial";
 
     ctx.fillText(
         "Progress",
         centerX,
-        centerY + 22
+        centerY + 28
     );
 }
 
@@ -556,6 +946,199 @@ function refreshDashboard(){
         today.progress
     );
 }
+function renderTodayTasks(){
+    if(!todayTasksList) return;
+
+    const today = getTodayDate();
+    const todayTasks = tasks.filter(task => task.task_date === today);
+
+    todayTasksList.innerHTML = "";
+
+    if(todayTasks.length === 0){
+        const empty = document.createElement("div");
+        empty.className = "today-task-item";
+        empty.innerHTML = "<div style='font-size:1.6rem; margin-bottom:6px;'>🎉</div><div>No tasks scheduled for today.</div>";
+        todayTasksList.appendChild(empty);
+        return;
+    }
+
+    todayTasks.forEach(task => {
+        const item = document.createElement("div");
+        item.className = "today-task-item";
+        item.innerHTML = `<div style="font-weight:700; margin-bottom:4px;">${task.subject}</div><div style="color:#cbd5e1;">${task.topic}</div>`;
+        item.addEventListener("click", () => {
+            openSubjectPage(task.subject);
+            setTimeout(() => {
+                const target = Array.from(taskContainer.querySelectorAll(".task-card")).find(card => card.textContent.includes(task.topic));
+                if(target){
+                    target.scrollIntoView({behavior:"smooth", block:"center"});
+                    target.style.boxShadow = "0 0 0 2px rgba(56,189,248,0.35)";
+                    setTimeout(() => target.style.boxShadow = "", 1600);
+                }
+            }, 100);
+        });
+        todayTasksList.appendChild(item);
+    });
+}
+
+function renderSubjectFilters(){
+    if(!subjectFilterList) return;
+
+    subjectFilterList.innerHTML = "";
+
+    const options = ["all", ...subjects.map(subject => subject.name)];
+    options.forEach(option => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = `subject-filter-item${selectedSubjectFilter === option ? " active" : ""}`;
+        item.textContent = option === "all" ? "All Subjects" : option;
+        item.addEventListener("click", () => {
+            selectedSubjectFilter = option;
+            renderSubjectFilters();
+            renderSearchResults();
+        });
+        subjectFilterList.appendChild(item);
+    });
+}
+
+function getFilteredTasks(){
+    const query = searchInput?.value.trim().toLowerCase() || "";
+    const matchingTasks = tasks.filter(task => {
+        const matchesSubject = selectedSubjectFilter === "all" || task.subject === selectedSubjectFilter;
+        const haystack = `${task.subject} ${task.topic} ${task.source} ${task.remarks}`.toLowerCase();
+        const matchesQuery = query === "" || haystack.includes(query);
+        return matchesSubject && matchesQuery;
+    });
+
+    return getTaskViewTasks(matchingTasks, searchTaskView);
+}
+
+function renderSearchResults(){
+    if(!searchResults) return;
+
+    const filteredTasks = getFilteredTasks();
+    searchResults.innerHTML = "";
+
+    if(filteredTasks.length === 0){
+        searchResults.innerHTML = '<div class="today-task-item">No matching tasks.</div>';
+        return;
+    }
+
+    filteredTasks.forEach(task => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "search-result-item";
+        item.innerHTML = `<div style="font-weight:700; margin-bottom:4px;">${task.subject}</div><div style="color:#cbd5e1;">${task.topic}</div>`;
+        item.addEventListener("click", () => {
+            openSubjectPage(task.subject);
+            setTimeout(() => {
+                const target = Array.from(taskContainer.querySelectorAll(".task-card")).find(card => card.textContent.includes(task.topic));
+                if(target){
+                    target.scrollIntoView({behavior:"smooth", block:"center"});
+                    target.style.boxShadow = "0 0 0 2px rgba(56,189,248,0.35)";
+                    setTimeout(() => target.style.boxShadow = "", 1600);
+                }
+            }, 100);
+        });
+        searchResults.appendChild(item);
+    });
+}
+
+function renderStatistics(){
+    if(!summaryStats) return;
+
+    const completed = tasks.filter(task => task.status === "Completed").length;
+    const pending = tasks.filter(task => task.status === "Planned" || task.status === "Halfway").length;
+    const missed = tasks.filter(task => task.status === "Missed").length;
+    const completionRate = tasks.length ? Math.round((completed / tasks.length) * 100) : 0;
+
+    summaryStats.innerHTML = [
+        {label:"Completion Rate", value:`${completionRate}%`},
+        {label:"Completed Tasks", value:completed},
+        {label:"Pending Tasks", value:pending},
+        {label:"Missed Tasks", value:missed}
+    ].map(item => `<div class="summary-item"><span>${item.label}</span><strong>${item.value}</strong></div>`).join("");
+
+    subjectPerformanceBars.innerHTML = subjects.length ? subjects.map(subject => {
+        const subjectTasks = tasks.filter(task => task.subject === subject.name);
+        const completedCount = subjectTasks.filter(task => task.status === "Completed").length;
+        const percentage = subjectTasks.length ? Math.round((completedCount / subjectTasks.length) * 100) : 0;
+        return `<div class="bar-row"><span>${subject.name}</span><div class="bar-track"><div class="bar-fill" style="width:${percentage}%"></div></div><span>${percentage}%</span></div>`;
+    }).join("") : '<div class="insight-item">No subject data yet.</div>';
+
+    const weekDays = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+    weeklyBars.innerHTML = weekDays.map(day => {
+        const dayTasks = tasks.filter(task => {
+            const parsed = convertToDate(task.task_date);
+            return parsed && parsed.toLocaleDateString("en-US", { weekday: "long" }) === day;
+        });
+        const completedCount = dayTasks.filter(task => task.status === "Completed").length;
+        const percentage = dayTasks.length ? Math.round((completedCount / dayTasks.length) * 100) : 0;
+        return `<div class="bar-row"><span>${day}</span><div class="bar-track"><div class="bar-fill" style="width:${percentage}%"></div></div><span>${percentage}%</span></div>`;
+    }).join("");
+
+    const days = Array.from({length: 35}, (_, index) => index);
+    monthlyGrid.innerHTML = days.map(() => '<div class="contribution-cell"></div>').join("");
+    const completedDays = tasks.filter(task => task.status === "Completed").length;
+    const missedDays = tasks.filter(task => task.status === "Missed").length;
+    monthlyGrid.querySelectorAll('.contribution-cell').forEach((cell, index) => {
+        if(index < completedDays % 35) cell.classList.add('completed');
+        else if(index < (completedDays + missedDays) % 35) cell.classList.add('missed');
+    });
+
+    const completedPercent = tasks.length ? (completed / tasks.length) * 100 : 0;
+    const halfwayPercent = tasks.length ? (tasks.filter(task => task.status === "Halfway").length / tasks.length) * 100 : 0;
+    const plannedPercent = tasks.length ? (tasks.filter(task => task.status === "Planned").length / tasks.length) * 100 : 0;
+    const missedPercent = tasks.length ? (missed / tasks.length) * 100 : 0;
+
+    const donutSegments = [
+        { color: "#10b981", percent: completedPercent },
+        { color: "#f59e0b", percent: halfwayPercent },
+        { color: "#3b82f6", percent: plannedPercent },
+        { color: "#f43f5e", percent: missedPercent }
+    ];
+
+    let current = 0;
+    const conicStops = donutSegments.map(segment => {
+        const start = current;
+        current += segment.percent;
+        return `${segment.color} ${start}% ${current}%`;
+    }).join(", ");
+
+    distributionDonut.style.background = `conic-gradient(${conicStops})`;
+    distributionLegend.innerHTML = [
+        {label:'Completed', color:'#10b981'},
+        {label:'Halfway', color:'#f59e0b'},
+        {label:'Planned', color:'#3b82f6'},
+        {label:'Missed', color:'#f43f5e'}
+    ].map(item => `<div class="legend-row"><span class="legend-dot" style="background:${item.color}"></span>${item.label}</div>`).join("");
+
+    const bestSubject = subjects.length ? subjects.reduce((best, subject) => {
+        const subjectTasks = tasks.filter(task => task.subject === subject.name);
+        const rate = subjectTasks.length ? subjectTasks.filter(task => task.status === "Completed").length / subjectTasks.length : 0;
+        return rate > best.rate ? {name: subject.name, rate} : best;
+    }, {name:'None', rate:0}) : {name:'None', rate:0};
+
+    const streak = Math.min(tasks.filter(task => task.status === "Completed").length, 7);
+    const longestStreak = Math.min(tasks.filter(task => task.status === "Completed").length + 1, 7);
+
+    achievementCards.innerHTML = [
+        {icon:'🏆', title:'Best Subject', value:bestSubject.name},
+        {icon:'🔥', title:'Current Streak', value:`${streak} days`},
+        {icon:'⭐', title:'Longest Streak', value:`${longestStreak} days`}
+    ].map(item => `<div class="achievement-card"><span class="icon">${item.icon}</span><strong>${item.title}</strong><span>${item.value}</span></div>`).join("");
+
+    const insights = [];
+    if(bestSubject.name !== 'None') insights.push(`${bestSubject.name} is your strongest subject.`);
+    const weakSubject = subjects.find(subject => {
+        const subjectTasks = tasks.filter(task => task.subject === subject.name);
+        return subjectTasks.length > 0 && subjectTasks.filter(task => task.status === "Completed").length / subjectTasks.length < 0.5;
+    });
+    if(weakSubject) insights.push(`${weakSubject.name} needs more attention.`);
+    if(insights.length === 0) insights.push('Keep building momentum with one focused task at a time.');
+    insightsList.innerHTML = insights.map(item => `<div class="insight-item">${item}</div>`).join("");
+}
+
 function openSubjectModal(){
 
     closeAllSubjectMenus();
@@ -737,6 +1320,72 @@ addSubjectButton.addEventListener(
     openSubjectModal
 );
 
+tabButtons.forEach(button => {
+    button.addEventListener("click", () => showTab(button.dataset.tab));
+});
+
+settingsButton.addEventListener("click", openSettingsPanel);
+closeSettingsButton.addEventListener("click", closeSettingsPanel);
+
+settingsOverlay.addEventListener("click", event => {
+    if(event.target === settingsOverlay){
+        closeSettingsPanel();
+    }
+});
+
+document.querySelectorAll("[data-settings-toggle]").forEach(button => {
+    button.addEventListener("click", () => {
+        const content = document.getElementById(button.dataset.settingsToggle);
+        if(content){
+            content.classList.toggle("hidden");
+        }
+    });
+});
+
+document.querySelectorAll("[data-settings-page]").forEach(button => {
+    button.addEventListener("click", () => {
+        openSettingsPage(document.getElementById(button.dataset.settingsPage));
+    });
+});
+
+document.querySelectorAll("[data-settings-return]").forEach(button => {
+    button.addEventListener("click", returnFromSettingsPage);
+});
+
+document.querySelectorAll("[data-accent]").forEach(button => {
+    button.addEventListener("click", () => {
+        appSettings.accent = button.dataset.accent;
+        saveSettings();
+        applyAccentColor();
+        syncSettingsUI();
+    });
+});
+
+autoDeleteSelect.addEventListener("change", () => {
+    appSettings.autoDelete = autoDeleteSelect.value;
+    saveSettings();
+    syncSettingsUI();
+
+    if(applyAutoDeleteTasks()){
+        buildSubjects();
+        refreshDashboard();
+        renderSearchResults();
+    }
+});
+
+customDeleteDays.addEventListener("change", () => {
+    appSettings.customDeleteDays = customDeleteDays.value;
+    saveSettings();
+
+    if(applyAutoDeleteTasks()){
+        buildSubjects();
+        refreshDashboard();
+        renderSearchResults();
+    }
+});
+
+searchInput?.addEventListener("input", renderSearchResults);
+
 cancelSubjectBtn.addEventListener(
     "click",
     closeSubjectModal
@@ -761,14 +1410,61 @@ document.addEventListener("click", event => {
     }
 });
 
+document.addEventListener("click", event => {
+    const menuToggle = event.target.closest("[data-task-menu-toggle]");
+
+    if(menuToggle){
+        const menu = document.getElementById(menuToggle.dataset.taskMenuToggle);
+        const shouldOpen = menu?.classList.contains("hidden");
+        closeTaskControlMenus();
+
+        if(shouldOpen && menu){
+            menu.classList.remove("hidden");
+            menuToggle.setAttribute("aria-expanded", "true");
+        }
+        return;
+    }
+
+    const option = event.target.closest("[data-task-option]");
+
+    if(option){
+        const viewState = getTaskViewState(option.dataset.taskContext);
+        viewState[option.dataset.taskSetting] = option.dataset.taskValue;
+        syncTaskControls(option.dataset.taskContext);
+        renderTaskView(option.dataset.taskContext);
+        closeTaskControlMenus();
+        return;
+    }
+
+    const resetButton = event.target.closest("[data-task-reset]");
+
+    if(resetButton){
+        const viewState = getTaskViewState(resetButton.dataset.taskContext);
+        viewState.status = "all";
+        viewState.date = "all";
+        syncTaskControls(resetButton.dataset.taskContext);
+        renderTaskView(resetButton.dataset.taskContext);
+        closeTaskControlMenus();
+        return;
+    }
+
+    if(!event.target.closest(".task-control")){
+        closeTaskControlMenus();
+    }
+});
+
 document.addEventListener("keydown", event => {
     if(event.key === "Escape"){
         closeSubjectModal();
         closeTaskModal();
         closeAllSubjectMenus();
         closeDeleteConfirmModal();
+        closeSettingsPanel();
     }
 });
+
+window.addEventListener("resize", closeAllSubjectMenus);
+subjectGrid?.addEventListener("scroll", closeAllSubjectMenus);
 
 saveSubjectBtn.addEventListener(
     "click",
@@ -776,7 +1472,14 @@ saveSubjectBtn.addEventListener(
 );
 /* ================= START APP ================= */
 
+applyAccentColor();
+syncSettingsUI();
+applyAutoDeleteTasks();
 buildSubjects();
+initQuotes();
+syncTaskControls("subject");
+syncTaskControls("search");
+showTab("home");
 
 refreshDashboard();
 /* ==================================================
@@ -964,6 +1667,151 @@ function convertToDate(dateString){
     );
 }
 
+function getAutoDeleteDays(){
+    if(appSettings.autoDelete === "30") return 30;
+    if(appSettings.autoDelete === "60") return 60;
+
+    if(appSettings.autoDelete === "custom"){
+        const customDays = Number.parseInt(appSettings.customDeleteDays, 10);
+        return customDays > 0 ? customDays : null;
+    }
+
+    return null;
+}
+
+function applyAutoDeleteTasks(){
+    const deleteAfterDays = getAutoDeleteDays();
+    if(!deleteAfterDays) return false;
+
+    const cutoffDate = getStartOfToday();
+    cutoffDate.setDate(cutoffDate.getDate() - deleteAfterDays);
+
+    const previousTaskCount = tasks.length;
+    tasks = tasks.filter(task => {
+        const taskDate = convertToDate(task.task_date);
+        return !taskDate || taskDate >= cutoffDate;
+    });
+
+    if(tasks.length !== previousTaskCount){
+        saveTasks();
+        return true;
+    }
+
+    return false;
+}
+
+function getTaskViewState(context){
+    return context === "search" ? searchTaskView : subjectTaskView;
+}
+
+function getStartOfToday(){
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+}
+
+function matchesTaskDateFilter(task, dateFilter){
+    if(dateFilter === "all") return true;
+
+    const taskDate = convertToDate(task.task_date);
+    if(!taskDate) return false;
+
+    const today = getStartOfToday();
+
+    if(dateFilter === "today"){
+        return taskDate.getTime() === today.getTime();
+    }
+
+    if(dateFilter === "tomorrow"){
+        const tomorrow = new Date(today);
+        tomorrow.setDate(today.getDate() + 1);
+        return taskDate.getTime() === tomorrow.getTime();
+    }
+
+    if(dateFilter === "week"){
+        const weekStart = new Date(today);
+        weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        return taskDate >= weekStart && taskDate <= weekEnd;
+    }
+
+    return true;
+}
+
+function getTaskDateValue(task){
+    const date = convertToDate(task.task_date);
+    return date ? date.getTime() : null;
+}
+
+function getNormalTaskRank(task){
+    const today = getStartOfToday();
+    const taskDate = convertToDate(task.task_date);
+
+    if(taskDate && taskDate.getTime() === today.getTime()) return 0;
+
+    return {
+        Halfway: 1,
+        Missed: 2,
+        Completed: 3,
+        Planned: 4
+    }[task.status] ?? 5;
+}
+
+function sortTasks(taskList, sortMode){
+    return [...taskList].sort((firstTask, secondTask) => {
+        const firstDate = getTaskDateValue(firstTask);
+        const secondDate = getTaskDateValue(secondTask);
+
+        if(firstDate === null) return secondDate === null ? 0 : 1;
+        if(secondDate === null) return -1;
+
+        if(sortMode === "descending") return secondDate - firstDate;
+        if(sortMode === "ascending") return firstDate - secondDate;
+
+        const rankDifference = getNormalTaskRank(firstTask) - getNormalTaskRank(secondTask);
+        return rankDifference || firstDate - secondDate;
+    });
+}
+
+function getTaskViewTasks(taskList, viewState){
+    return sortTasks(
+        taskList.filter(task =>
+            (viewState.status === "all" || task.status === viewState.status) &&
+            matchesTaskDateFilter(task, viewState.date)
+        ),
+        viewState.sort
+    );
+}
+
+function closeTaskControlMenus(){
+    document.querySelectorAll(".task-control-menu").forEach(menu => {
+        menu.classList.add("hidden");
+    });
+
+    document.querySelectorAll("[data-task-menu-toggle]").forEach(button => {
+        button.setAttribute("aria-expanded", "false");
+    });
+}
+
+function syncTaskControls(context){
+    const viewState = getTaskViewState(context);
+
+    document.querySelectorAll(`[data-task-option][data-task-context="${context}"]`).forEach(button => {
+        const isActive = viewState[button.dataset.taskSetting] === button.dataset.taskValue;
+        button.dataset.active = String(isActive);
+    });
+}
+
+function renderTaskView(context){
+    if(context === "search"){
+        renderSearchResults();
+        return;
+    }
+
+    renderTasks();
+}
+
 /* ================= OVERDUE CHECK ================= */
 
 function processOverdueTasks(){
@@ -993,7 +1841,7 @@ function processOverdueTasks(){
         ){
 
             task.status =
-                "Not Completed";
+                "Missed";
         }
 
     });
@@ -1026,19 +1874,19 @@ function getStatusColor(status){
     switch(status){
 
         case "Completed":
-            return "#22c55e";
+            return "#10b981";
 
         case "Halfway":
-            return "#facc15";
+            return "#f59e0b";
 
-        case "Not Completed":
-            return "#ef4444";
+        case "Missed":
+            return "#f43f5e";
 
         case "Planned":
-            return "#7c3aed";
+            return "#3b82f6";
 
         default:
-            return "#7c3aed";
+            return "#3b82f6";
     }
 }
 
@@ -1060,22 +1908,36 @@ function renderTasks(){
         subjectTasks.length
     );
 
-    subjectTasks.sort((a,b)=>{
+    if(subjectTasks.length === 0){
+        const emptyState = document.createElement("div");
+        emptyState.className = "subject-empty-state";
 
-        const d1 =
-            convertToDate(
-                a.task_date
-            );
+        const icon = document.createElement("div");
+        icon.className = "subject-empty-icon";
+        icon.textContent = "📝";
 
-        const d2 =
-            convertToDate(
-                b.task_date
-            );
+        const title = document.createElement("h3");
+        title.textContent = `No tasks in ${currentSubject} yet`;
 
-        return d1 - d2;
-    });
+        const message = document.createElement("p");
+        message.append("Use ");
+        const action = document.createElement("strong");
+        action.textContent = "+ Add Task";
+        message.append(action, " to create your first task for this subject.");
 
-    subjectTasks.forEach(task=>{
+        emptyState.append(icon, title, message);
+        taskContainer.appendChild(emptyState);
+        return;
+    }
+
+    const visibleTasks = getTaskViewTasks(subjectTasks, subjectTaskView);
+
+    if(visibleTasks.length === 0){
+        taskContainer.innerHTML = '<div class="subject-empty-state"><div class="subject-empty-icon">🔎</div><h3>No matching tasks</h3><p>Try adjusting or resetting the current filters.</p></div>';
+        return;
+    }
+
+    visibleTasks.forEach(task=>{
 
         const clone =
             taskTemplate.content.cloneNode(true);
@@ -1107,14 +1969,42 @@ function renderTasks(){
         const deleteBtn =
             taskActions.querySelector(".delete-btn");
 
-        topic.textContent =
-            task.topic;
+        topic.innerHTML = "";
+        source.innerHTML = "";
+        date.innerHTML = "";
 
-        source.textContent =
-            task.source;
+        const topicIcon = document.createElement("span");
+        topicIcon.className = "task-field-icon";
+        topicIcon.textContent = "📘";
 
-        date.textContent =
-            task.task_date;
+        const topicText = document.createElement("span");
+        topicText.className = "task-field-text";
+        topicText.textContent = task.topic;
+
+        topic.appendChild(topicIcon);
+        topic.appendChild(topicText);
+
+        const sourceIcon = document.createElement("span");
+        sourceIcon.className = "task-field-icon";
+        sourceIcon.textContent = "📖";
+
+        const sourceText = document.createElement("span");
+        sourceText.className = "task-field-text";
+        sourceText.textContent = task.source;
+
+        source.appendChild(sourceIcon);
+        source.appendChild(sourceText);
+
+        const dateIcon = document.createElement("span");
+        dateIcon.className = "task-field-icon";
+        dateIcon.textContent = "📅";
+
+        const dateText = document.createElement("span");
+        dateText.className = "task-field-text";
+        dateText.textContent = task.task_date;
+
+        date.appendChild(dateIcon);
+        date.appendChild(dateText);
 
         remarks.value =
             task.remarks;
@@ -1131,7 +2021,7 @@ function renderTasks(){
 
         if(
             task.status ===
-            "Not Completed"
+            "Missed"
         ){
 
             card.classList.add(

@@ -5,71 +5,254 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IRON MIND Tracker</title>
 
-    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=subject-tasks-7">
     <link rel="icon" type="image/png" href="./iron-mind-icon.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
 </head>
 <body>
 
-    <!-- ================= HOME PAGE ================= -->
+    <div class="app-shell">
+        <main>
+            <!-- ================= HOME PAGE ================= -->
+            <section id="homePage" class="page active">
+                <div class="top-dashboard">
+                    <div class="dashboard-box dashboard-panel progress-panel">
+                        <canvas id="progressCanvas" width="170" height="170"></canvas>
+                        <h3 id="todayStats">Today: 0 / 0</h3>
+                    </div>
 
-    <div id="homePage">
+                    <div class="dashboard-box dashboard-panel quote-panel">
+                        <div class="quote-card quote-1" id="quoteCard">
+                            <div class="quote-content">
+                                <p class="quote-text" id="quoteText">Discipline beats motivation.</p>
+                            </div>
+                            <div class="quote-dots" id="quoteDots"></div>
+                        </div>
+                    </div>
 
-        <!-- Top Dashboard -->
-        <div class="top-dashboard">
-
-            <!-- Progress Section -->
-            <div class="dashboard-box">
-
-                <canvas id="progressCanvas"
-                        width="170"
-                        height="170">
-                </canvas>
-
-                <h3 id="todayStats">
-                    Today: 0 / 0
-                </h3>
-
-            </div>
-
-            <!-- Title -->
-            <div class="dashboard-center">
-
-               <div class="title-image-box">
-                   <h1 class="hero-title">IRON MIND</h1>
-                   <p class="hero-slogan">Plan Today. Progress Every Day.</p>
-               </div>
-
-            </div>
-
-            <!-- Not Completed -->
-            <div class="dashboard-box">
-
-                <div id="notCompletedBox">
-
-                    <h2 id="notCompletedCount">0</h2>
-
-                    <p>Not Completed</p>
-
+                    <div class="dashboard-box dashboard-panel missed-panel">
+                        <div id="notCompletedBox">
+                            <h2 id="notCompletedCount">0</h2>
+                            <p>Missed</p>
+                        </div>
+                    </div>
                 </div>
 
+                <div class="home-main">
+                    <section class="home-panel subjects-panel">
+                        <div class="panel-head">
+                            <span>Subjects</span>
+                        </div>
+                        <div id="subjectGrid"></div>
+                    </section>
+
+                    <aside class="home-panel tasks-panel">
+                        <div class="panel-head">
+                            <span>Today's Tasks</span>
+                        </div>
+                        <div id="todayTasksList" class="today-tasks-list"></div>
+                    </aside>
+                </div>
+            </section>
+
+            <section id="searchPage" class="page hidden">
+                <div class="search-shell">
+                    <aside class="search-sidebar">
+                        <div class="panel-head">
+                            <span>Subjects</span>
+                        </div>
+                        <div id="subjectFilterList" class="subject-filter-list"></div>
+                    </aside>
+
+                    <section class="search-main">
+                        <div class="panel-head">
+                            <span>🔍 Search Tasks</span>
+                        </div>
+                        <div class="search-input-wrap">
+                            <input id="searchInput" type="text" placeholder="Search tasks or subjects...">
+                            <div class="task-controls search-task-controls" aria-label="Search task controls">
+                                <div class="task-control">
+                                    <button class="task-control-button" type="button" data-task-menu-toggle="searchSortMenu" aria-expanded="false">↕ Sort</button>
+                                    <div class="task-control-menu hidden" id="searchSortMenu">
+                                        <button type="button" data-task-option data-task-context="search" data-task-setting="sort" data-task-value="normal">Normal</button>
+                                        <button type="button" data-task-option data-task-context="search" data-task-setting="sort" data-task-value="descending">Descending</button>
+                                        <button type="button" data-task-option data-task-context="search" data-task-setting="sort" data-task-value="ascending">Ascending</button>
+                                    </div>
+                                </div>
+                                <div class="task-control">
+                                    <button class="task-control-button" type="button" data-task-menu-toggle="searchFilterMenu" aria-expanded="false">⚲ Filter</button>
+                                    <div class="task-control-menu task-filter-menu hidden" id="searchFilterMenu">
+                                        <span class="task-control-label">Status</span>
+                                        <div class="task-option-group">
+                                            <button type="button" data-task-option data-task-context="search" data-task-setting="status" data-task-value="all">All</button>
+                                            <button type="button" data-task-option data-task-context="search" data-task-setting="status" data-task-value="Planned">Planned</button>
+                                            <button type="button" data-task-option data-task-context="search" data-task-setting="status" data-task-value="Completed">Completed</button>
+                                            <button type="button" data-task-option data-task-context="search" data-task-setting="status" data-task-value="Halfway">Halfway</button>
+                                            <button type="button" data-task-option data-task-context="search" data-task-setting="status" data-task-value="Missed">Missed</button>
+                                        </div>
+                                        <span class="task-control-label">Date</span>
+                                        <div class="task-option-group">
+                                            <button type="button" data-task-option data-task-context="search" data-task-setting="date" data-task-value="all">All dates</button>
+                                            <button type="button" data-task-option data-task-context="search" data-task-setting="date" data-task-value="today">Today</button>
+                                            <button type="button" data-task-option data-task-context="search" data-task-setting="date" data-task-value="tomorrow">Tomorrow</button>
+                                            <button type="button" data-task-option data-task-context="search" data-task-setting="date" data-task-value="week">This week</button>
+                                        </div>
+                                        <button class="task-reset-button" type="button" data-task-reset data-task-context="search">Reset filters</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="searchResults" class="search-results"></div>
+                    </section>
+                </div>
+            </section>
+
+            <section id="statisticsPage" class="page hidden">
+                <div class="stats-grid stats-page-only">
+                    <div class="stat-card stat-summary">
+                        <div class="panel-head">
+                            <span>Overall Summary</span>
+                        </div>
+                        <div class="summary-grid" id="summaryStats"></div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="panel-head">
+                            <span>Subject Performance</span>
+                        </div>
+                        <div id="subjectPerformanceBars" class="bars-stack"></div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="panel-head">
+                            <span>Weekly Productivity</span>
+                        </div>
+                        <div id="weeklyBars" class="bars-stack"></div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="panel-head">
+                            <span>Monthly Activity</span>
+                        </div>
+                        <div id="monthlyGrid" class="contribution-grid"></div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="panel-head">
+                            <span>Task Distribution</span>
+                        </div>
+                        <div class="distribution-wrap">
+                            <div id="distributionDonut" class="distribution-donut"></div>
+                            <div id="distributionLegend" class="distribution-legend"></div>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="panel-head">
+                            <span>Achievements</span>
+                        </div>
+                        <div id="achievementCards" class="achievement-cards"></div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="panel-head">
+                            <span>Insights</span>
+                        </div>
+                        <div id="insightsList" class="insights-list"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="helpPage" class="page hidden settings-info-page">
+                <div class="settings-info-card">
+                    <button class="settings-page-back" type="button" data-settings-return>← Back</button>
+                    <h1>Help &amp; User Guide</h1>
+                    <section><h2>Getting Started</h2><p>Welcome to IRON MIND.</p><p>IRON MIND helps you organize your subjects, manage daily tasks, and monitor your progress in a simple and structured way.</p></section>
+                    <section><h2>Dashboard</h2><p>The Dashboard provides a quick overview of your work. It includes:</p><ul><li>Progress Circle</li><li>Motivational Quote Carousel</li><li>Missed Task Counter</li><li>Today's Tasks</li><li>Subject List</li></ul></section>
+                    <section><h2>Subjects</h2><p>Create a subject for every area you want to manage. Each subject stores its own tasks. Click a subject to view or edit its tasks.</p></section>
+                    <section><h2>Tasks</h2><p>Every task includes:</p><ul><li>Topic</li><li>Source</li><li>Date</li><li>Remarks</li><li>Status</li></ul><p>Update task status regularly to keep your progress accurate.</p></section>
+                    <section><h2>Search</h2><p>The Search page helps you quickly locate tasks. You can search across all subjects or search within a selected subject.</p></section>
+                    <section><h2>Statistics</h2><p>The Statistics page summarizes your overall progress using charts, performance indicators, and insights. Use it regularly to review your progress and identify areas that need more attention.</p></section>
+                    <section><h2>Settings</h2><p>The Settings page allows you to configure Auto-delete Tasks, change the Accent Color, read the User Guide, learn about IRON MIND, and send feedback.</p></section>
+                    <section><h2>Tips</h2><ul><li>Plan your work before starting.</li><li>Update task status immediately after completing a task.</li><li>Review your Statistics page regularly.</li><li>Consistent daily progress produces long-term results.</li></ul></section>
+                </div>
+            </section>
+
+            <section id="aboutPage" class="page hidden settings-info-page">
+                <div class="settings-info-card">
+                    <button class="settings-page-back" type="button" data-settings-return>← Back</button>
+                    <h1>About IRON MIND</h1>
+                    <p>IRON MIND is a productivity application designed to help users organize their work with clarity, discipline, and consistency. Rather than being just another task manager, it combines subject organization, task management, daily planning, search, and performance analysis into a single workspace.</p>
+                    <p>The application is built around a simple idea: staying organized should be easy, motivating, and visually engaging. Every feature is designed to encourage consistent progress and make it easier to keep track of both daily activities and long-term goals.</p>
+                    <blockquote>Small progress every day creates extraordinary results.</blockquote>
+                    <p>IRON MIND will continue to evolve with the goal of becoming a complete personal productivity companion.</p>
+                    <h2>Author's Note</h2>
+                    <p>Thank you for using IRON MIND.</p>
+                    <p>I created this application with the hope that it helps people stay organized, remain disciplined, and move steadily toward their goals. If IRON MIND makes your daily work even a little easier, then it has fulfilled its purpose.</p>
+                    <p class="developed-by">Developed by <strong>Muhammad Ameen</strong></p>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <div class="footer-actions">
+                <button id="addSubjectButton" type="button">+ Add Subject</button>
+            </div>
+            <nav class="tab-bar app-tab-bar" role="tablist" aria-label="Main sections">
+                <button class="tab-btn active" data-tab="home" type="button">🏠 Home</button>
+                <button class="tab-btn" data-tab="search" type="button">🔍 Search</button>
+                <button class="tab-btn" data-tab="stats" type="button">📊 Statistics</button>
+            </nav>
+        </footer>
+    </div>
+
+    <button id="settingsButton" class="settings-button" type="button" aria-label="Open settings" aria-expanded="false"><i class="fa-solid fa-gear"></i></button>
+
+    <div id="settingsOverlay" class="settings-overlay" aria-hidden="true">
+        <aside id="settingsPanel" class="settings-panel" aria-label="Settings panel">
+            <div class="settings-panel-header">
+                <h2>⚙ Settings</h2>
+                <button id="closeSettingsButton" class="settings-close-button" type="button" aria-label="Close settings">×</button>
             </div>
 
-        </div>
+            <div class="settings-menu">
+                <button class="settings-menu-button" type="button" data-settings-toggle="dataManagementContent"><span>🗂 Data Management</span><span>⌄</span></button>
+                <div id="dataManagementContent" class="settings-expandable hidden">
+                    <label for="autoDeleteSelect">Auto-delete Tasks</label>
+                    <select id="autoDeleteSelect">
+                        <option value="never">Never</option>
+                        <option value="30">30 Days</option>
+                        <option value="60">60 Days</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                    <div id="customDeleteDaysWrap" class="hidden">
+                        <label for="customDeleteDays">Number of Days</label>
+                        <input id="customDeleteDays" type="number" min="1" inputmode="numeric" placeholder="Number of days">
+                    </div>
+                </div>
 
-       <!-- Add Subject Button -->
-       <div class="subject-action-row">
+                <button class="settings-menu-button" type="button" data-settings-toggle="appearanceContent"><span>🎨 Appearance</span><span>⌄</span></button>
+                <div id="appearanceContent" class="settings-expandable hidden">
+                    <span class="settings-field-label">Accent Color</span>
+                    <button class="accent-option" type="button" data-accent="purple"><span class="accent-swatch purple"></span>Purple <small>(Default)</small></button>
+                    <button class="accent-option" type="button" data-accent="blue"><span class="accent-swatch blue"></span>Blue</button>
+                    <button class="accent-option" type="button" data-accent="green"><span class="accent-swatch green"></span>Green</button>
+                    <button class="accent-option" type="button" data-accent="orange"><span class="accent-swatch orange"></span>Orange</button>
+                </div>
 
-          <button id="addSubjectButton">
-              + Add Subject
-          </button>
-
-       </div>
-
-       <!-- Subject Buttons -->
-       <div id="subjectGrid">
-
-       </div>
-
+                <button class="settings-menu-button" type="button" data-settings-page="helpPage">📖 Help &amp; User Guide</button>
+                <button class="settings-menu-button" type="button" data-settings-page="aboutPage">ℹ About</button>
+                <button class="settings-menu-button" type="button" data-settings-toggle="feedbackContent"><span>💬 Feedback</span><span>⌄</span></button>
+                <div id="feedbackContent" class="settings-expandable hidden feedback-content">
+                    <h3>💬 Feedback</h3><p>Found a bug?</p><p>Have an idea?</p><p>Want to suggest a feature?</p><p>Email: <a href="mailto:ameencherikkandi@gmail.com">ameencherikkandi@gmail.com</a></p>
+                    <a class="send-feedback-button" href="mailto:ameencherikkandi@gmail.com?subject=IRON%20MIND%20Feedback&amp;body=Device%3A%0AVersion%3A%0AFeedback%3A">📧 Send Feedback</a>
+                </div>
+            </div>
+        </aside>
     </div>
 
     <!-- ================= SUBJECT PAGE ================= -->
@@ -79,7 +262,7 @@
         <!-- Header -->
         <div class="subject-header">
 
-            <button id="backButton">
+            <button id="backButton" type="button" aria-label="Go back to Home">
                 ← Back
             </button>
 
@@ -91,16 +274,48 @@
                 Progress: 0%
             </div>
 
-            <button id="addTaskButton">
+            <div class="task-controls subject-task-controls" aria-label="Subject task controls">
+                <div class="task-control">
+                    <button class="task-control-button" type="button" data-task-menu-toggle="subjectSortMenu" aria-expanded="false">↕ Sort</button>
+                    <div class="task-control-menu hidden" id="subjectSortMenu">
+                        <button type="button" data-task-option data-task-context="subject" data-task-setting="sort" data-task-value="normal">Normal</button>
+                        <button type="button" data-task-option data-task-context="subject" data-task-setting="sort" data-task-value="descending">Descending</button>
+                        <button type="button" data-task-option data-task-context="subject" data-task-setting="sort" data-task-value="ascending">Ascending</button>
+                    </div>
+                </div>
+                <div class="task-control">
+                    <button class="task-control-button" type="button" data-task-menu-toggle="subjectFilterMenu" aria-expanded="false">⚲ Filter</button>
+                    <div class="task-control-menu task-filter-menu hidden" id="subjectFilterMenu">
+                        <span class="task-control-label">Status</span>
+                        <div class="task-option-group">
+                            <button type="button" data-task-option data-task-context="subject" data-task-setting="status" data-task-value="all">All</button>
+                            <button type="button" data-task-option data-task-context="subject" data-task-setting="status" data-task-value="Planned">Planned</button>
+                            <button type="button" data-task-option data-task-context="subject" data-task-setting="status" data-task-value="Completed">Completed</button>
+                            <button type="button" data-task-option data-task-context="subject" data-task-setting="status" data-task-value="Halfway">Halfway</button>
+                            <button type="button" data-task-option data-task-context="subject" data-task-setting="status" data-task-value="Missed">Missed</button>
+                        </div>
+                        <span class="task-control-label">Date</span>
+                        <div class="task-option-group">
+                            <button type="button" data-task-option data-task-context="subject" data-task-setting="date" data-task-value="all">All dates</button>
+                            <button type="button" data-task-option data-task-context="subject" data-task-setting="date" data-task-value="today">Today</button>
+                            <button type="button" data-task-option data-task-context="subject" data-task-setting="date" data-task-value="tomorrow">Tomorrow</button>
+                            <button type="button" data-task-option data-task-context="subject" data-task-setting="date" data-task-value="week">This week</button>
+                        </div>
+                        <button class="task-reset-button" type="button" data-task-reset data-task-context="subject">Reset filters</button>
+                    </div>
+                </div>
+            </div>
+
+            <button id="addTaskButton" type="button">
                 + Add Task
             </button>
 
         </div>
 
         <!-- Task Area -->
-        <div id="taskContainer">
+        <section id="taskContainer" aria-live="polite">
 
-        </div>
+        </section>
 
     </div>
 <!-- ================= ADD SUBJECT MODAL ================= -->
@@ -242,7 +457,7 @@
                 </option>
 
                 <option>
-                    Not Completed
+                    Missed
                 </option>
 
             </select>
@@ -261,7 +476,7 @@
 
     </template>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=subject-tasks-7"></script>
 
 </body>
 </html>
