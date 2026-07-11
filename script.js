@@ -965,7 +965,21 @@ function renderTodayTasks(){
     todayTasks.forEach(task => {
         const item = document.createElement("div");
         item.className = "today-task-item";
-        item.innerHTML = `<div style="font-weight:700; margin-bottom:4px;">${task.subject}</div><div style="color:#cbd5e1;">${task.topic}</div>`;
+        item.innerHTML = `
+    <div style="font-weight:700; margin-bottom:4px;">
+        ${task.subject}
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="color:#cbd5e1;">
+            ${task.topic}
+        </span>
+
+        <span style="font-size:12px; font-weight:600; color:#a78bfa;">
+            ${task.status}
+        </span>
+    </div>
+`;
         item.addEventListener("click", () => {
             openSubjectPage(task.subject);
             setTimeout(() => {

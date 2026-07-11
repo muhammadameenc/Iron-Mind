@@ -1685,8 +1685,8 @@ main{
     position:fixed;
     top:18px;
     right:18px;
-    width:80px;
-    height:80px;
+    width:64px;
+    height:64px;
 
     display:flex;
     justify-content:center;
