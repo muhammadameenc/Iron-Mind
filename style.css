@@ -747,7 +747,7 @@ main{
     color:#f8fafc;
 }
 
-.empty-state-text{
+.empty-staFte-text{
     font-size:0.95rem;
     max-width:320px;
 }
@@ -788,26 +788,83 @@ main{
 
 @media (max-width: 767px) {
     .app-shell{ padding:14px 12px 24px; }
+    main{
+        overflow:hidden;
+    }
+
+    #homePage{
+
+        overflow-y:auto;
+
+        overflow-x:hidden;
+
+        height:100%;
+
+        padding-bottom:160px;
+
+        -webkit-overflow-scrolling:touch;
+    }
     .app-header{ flex-direction:column; align-items:flex-start; }
     .tab-bar{ width:100%; overflow-x:auto; }
     .top-dashboard{
-        grid-template-columns:1fr;
-        gap:14px;
+
+        display:grid;
+
+        grid-template-columns:1fr 1fr;
+
+        grid-template-areas:
+            "progress missed"
+            "quote quote";
+
+        gap:12px;
+
         padding:6px 0 12px;
+
+         align-items:start;
+    }
+
+    .progress-panel{
+        grid-area:progress;
+    }
+
+.missed-panel{
+    grid-area:missed;
+}
+
+.quote-panel{
+    grid-area:quote;
+}
+    .progress-panel{
+
+        grid-area:progress;
+
+    }
+
+    .missed-panel{
+
+        grid-area:missed;
+
+   }
+
+    .quote-panel{
+
+        grid-area:quote;
+
     }
 
     .dashboard-panel{
-        padding:18px 16px;
+        padding:12px;
+        min-height:135px;
     }
 
     #progressCanvas{
-        width:126px;
-        height:126px;
+        width:105px;
+        height:105px;
     }
 
     #notCompletedBox{
-        width:120px;
-        height:120px;
+        width:100px;
+        height:100px;
         border-radius:22px;
     }
 
