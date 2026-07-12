@@ -747,7 +747,7 @@ main{
     color:#f8fafc;
 }
 
-.empty-staFte-text{
+.empty-state-text{
     font-size:0.95rem;
     max-width:320px;
 }
@@ -788,83 +788,26 @@ main{
 
 @media (max-width: 767px) {
     .app-shell{ padding:14px 12px 24px; }
-    main{
-        overflow:hidden;
-    }
-
-    #homePage{
-
-        overflow-y:auto;
-
-        overflow-x:hidden;
-
-        height:100%;
-
-        padding-bottom:160px;
-
-        -webkit-overflow-scrolling:touch;
-    }
     .app-header{ flex-direction:column; align-items:flex-start; }
     .tab-bar{ width:100%; overflow-x:auto; }
     .top-dashboard{
-
-        display:grid;
-
-        grid-template-columns:1fr 1fr;
-
-        grid-template-areas:
-            "progress missed"
-            "quote quote";
-
-        gap:12px;
-
+        grid-template-columns:1fr;
+        gap:14px;
         padding:6px 0 12px;
-
-         align-items:start;
-    }
-
-    .progress-panel{
-        grid-area:progress;
-    }
-
-.missed-panel{
-    grid-area:missed;
-}
-
-.quote-panel{
-    grid-area:quote;
-}
-    .progress-panel{
-
-        grid-area:progress;
-
-    }
-
-    .missed-panel{
-
-        grid-area:missed;
-
-   }
-
-    .quote-panel{
-
-        grid-area:quote;
-
     }
 
     .dashboard-panel{
-        padding:12px;
-        min-height:135px;
+        padding:18px 16px;
     }
 
     #progressCanvas{
-        width:105px;
-        height:105px;
+        width:126px;
+        height:126px;
     }
 
     #notCompletedBox{
-        width:100px;
-        height:100px;
+        width:120px;
+        height:120px;
         border-radius:22px;
     }
 
@@ -949,6 +892,61 @@ main{
         min-height:200px;
         padding:28px 20px;
     }
+        /* === New mobile-only overrides === */
+
+    .top-dashboard {
+        height:auto;
+        gap:10px;
+        padding:4px 0;
+    }
+
+    .dashboard-panel {
+        padding:10px 12px;
+        min-height:120px;
+    }
+
+    #progressCanvas {
+        width:110px;
+        height:110px;
+    }
+
+    #notCompletedBox {
+        width:100px;
+        height:100px;
+    }
+
+    .quote-card {
+        min-height:100px;
+        padding:12px;
+    }
+
+    body {
+        overflow-y:auto;
+    }
+
+    #subjectGrid {
+        grid-template-columns:repeat(2, 1fr);
+        gap:12px;
+    }
+
+    .subject-icon {
+        font-size:0.9rem;
+    }
+
+    .subject-btn {
+        min-height:70px;
+        padding:12px;
+    }
+
+    #todayTasksList {
+        min-height:350px; /* space for ~5 tasks */
+        padding:10px;
+    }
+
+    .today-task-item {
+        min-height:70px;
+    }
+
 }
 
 /* ================= SUBJECT BUTTONS ================= */
