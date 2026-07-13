@@ -892,61 +892,6 @@ main{
         min-height:200px;
         padding:28px 20px;
     }
-        /* === New mobile-only overrides === */
-
-    .top-dashboard {
-        height:auto;
-        gap:10px;
-        padding:4px 0;
-    }
-
-    .dashboard-panel {
-        padding:10px 12px;
-        min-height:120px;
-    }
-
-    #progressCanvas {
-        width:110px;
-        height:110px;
-    }
-
-    #notCompletedBox {
-        width:100px;
-        height:100px;
-    }
-
-    .quote-card {
-        min-height:100px;
-        padding:12px;
-    }
-
-    body {
-        overflow-y:auto;
-    }
-
-    #subjectGrid {
-        grid-template-columns:repeat(2, 1fr);
-        gap:12px;
-    }
-
-    .subject-icon {
-        font-size:0.9rem;
-    }
-
-    .subject-btn {
-        min-height:70px;
-        padding:12px;
-    }
-
-    #todayTasksList {
-        min-height:350px; /* space for ~5 tasks */
-        padding:10px;
-    }
-
-    .today-task-item {
-        min-height:70px;
-    }
-
 }
 
 /* ================= SUBJECT BUTTONS ================= */
