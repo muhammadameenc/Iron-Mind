@@ -1010,6 +1010,14 @@ function renderSubjectFilters(){
             selectedSubjectFilter = option;
             renderSubjectFilters();
             renderSearchResults();
+            
+            // Mobile: Auto-close sidebar on selection
+            const sidebar = document.getElementById("searchSidebar");
+            const overlay = document.getElementById("searchSidebarOverlay");
+            if (sidebar && sidebar.classList.contains("is-open")) {
+                sidebar.classList.remove("is-open");
+                overlay.classList.remove("is-open");
+            }
         });
         subjectFilterList.appendChild(item);
     });
@@ -1334,6 +1342,31 @@ addSubjectButton.addEventListener(
     openSubjectModal
 );
 
+const addSubjectButtonMobile = document.getElementById("addSubjectButtonMobile");
+if (addSubjectButtonMobile) {
+    addSubjectButtonMobile.addEventListener("click", openSubjectModal);
+}
+
+const searchMenuButton = document.getElementById("searchMenuButton");
+const searchSidebar = document.getElementById("searchSidebar");
+const searchSidebarOverlay = document.getElementById("searchSidebarOverlay");
+const closeSearchSidebar = document.getElementById("closeSearchSidebar");
+
+if (searchMenuButton && searchSidebar && searchSidebarOverlay) {
+    searchMenuButton.addEventListener("click", () => {
+        searchSidebar.classList.add("is-open");
+        searchSidebarOverlay.classList.add("is-open");
+    });
+
+    const closeSidebar = () => {
+        searchSidebar.classList.remove("is-open");
+        searchSidebarOverlay.classList.remove("is-open");
+    };
+
+    closeSearchSidebar?.addEventListener("click", closeSidebar);
+    searchSidebarOverlay.addEventListener("click", closeSidebar);
+}
+
 tabButtons.forEach(button => {
     button.addEventListener("click", () => showTab(button.dataset.tab));
 });
@@ -1474,6 +1507,14 @@ document.addEventListener("keydown", event => {
         closeAllSubjectMenus();
         closeDeleteConfirmModal();
         closeSettingsPanel();
+        
+        // Close Search Sidebar on Escape
+        const sidebar = document.getElementById("searchSidebar");
+        const overlay = document.getElementById("searchSidebarOverlay");
+        if (sidebar && sidebar.classList.contains("is-open")) {
+            sidebar.classList.remove("is-open");
+            overlay.classList.remove("is-open");
+        }
     }
 });
 

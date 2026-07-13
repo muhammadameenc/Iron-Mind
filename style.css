@@ -2050,3 +2050,211 @@ main{
         letter-spacing:3px;
     }
 }
+
+/* ================= MOBILE LAYOUT IMPROVEMENTS (MOBILE ONLY) ================= */
+@media (max-width: 767px) {
+    /* Top Row Layout: Progress Left, Missed Right, Quote Card below */
+    .top-dashboard {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        grid-template-rows: auto auto !important;
+        gap: 14px !important;
+        height: auto !important;
+        padding: 6px 0 12px !important;
+    }
+    .progress-panel {
+        grid-column: 1 !important;
+        grid-row: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    .missed-panel {
+        grid-column: 2 !important;
+        grid-row: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    .quote-panel {
+        grid-column: 1 / span 2 !important;
+        grid-row: 2 !important;
+    }
+    .quote-card {
+        margin: 0 !important; /* Reset side margin so it takes full width of spanned grid */
+    }
+
+    /* Scrollable Home Page & independent containers */
+    #homePage {
+        overflow-y: auto !important;
+        height: 100% !important;
+        max-height: calc(100vh - 120px) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 16px !important;
+        padding-bottom: 32px !important;
+        min-height: 0 !important;
+    }
+    .home-main {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 16px !important;
+        min-height: 0 !important;
+        flex: 1 !important;
+    }
+    
+    /* Subjects Grid: 2 columns, scrollable, max-height proportional to viewport (35vh) */
+    #subjectGrid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 12px !important;
+        max-height: 35vh !important;
+        height: 35vh !important;
+        min-height: 250px !important;
+        overflow-y: auto !important;
+        padding-right: 4px !important;
+    }
+    
+    /* Today's Tasks List: scrollable, max-height proportional to viewport (25vh) */
+    #todayTasksList {
+        max-height: 25vh !important;
+        height: 25vh !important;
+        min-height: 180px !important;
+        overflow-y: auto !important;
+        padding-right: 4px !important;
+    }
+
+    /* Hide task status indicator in Today's Tasks on mobile */
+    #todayTasksList .today-task-item span[style*="color:#a78bfa;"] {
+        display: none !important;
+    }
+
+    /* Mobile specific Add Subject button below Today's Tasks */
+    .footer-actions {
+        display: none !important;
+    }
+    .mobile-add-subject-wrap {
+        display: flex !important;
+        justify-content: center !important;
+        width: 100% !important;
+        margin: 8px 0 24px 0 !important;
+    }
+    #addSubjectButtonMobile {
+        width: min(92vw, 200px) !important;
+        height: 46px !important;
+        border: none !important;
+        border-radius: 999px !important;
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright)) !important;
+        color: white !important;
+        font-size: 15px !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.02em !important;
+        cursor: pointer !important;
+        box-shadow: 0 10px 24px rgba(124,58,237,0.24) !important;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease !important;
+    }
+    #addSubjectButtonMobile:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 16px 30px rgba(124,58,237,0.28) !important;
+        filter: brightness(1.03) !important;
+    }
+    #addSubjectButtonMobile:active {
+        transform: scale(0.97) !important;
+    }
+
+    /* Search Page Mobile Hamburger and slide-out Subject panel */
+    .search-menu-toggle-btn {
+        display: flex !important;
+        width: 44px !important;
+        height: 44px !important;
+        background: rgba(30, 41, 59, 0.86) !important;
+        border: 1px solid rgba(148, 163, 184, 0.24) !important;
+        border-radius: 12px !important;
+        color: white !important;
+        font-size: 1.4rem !important;
+        cursor: pointer !important;
+        align-items: center !important;
+        justify-content: center !important;
+        flex-shrink: 0 !important;
+        transition: background 0.2s, transform 0.2s !important;
+    }
+    .search-menu-toggle-btn:hover {
+        background: rgba(71, 85, 105, 0.9) !important;
+        transform: translateY(-1px) !important;
+    }
+
+    .search-sidebar-overlay {
+        position: fixed !important;
+        inset: 0 !important;
+        background: rgba(2, 6, 23, 0.65) !important;
+        backdrop-filter: blur(4px) !important;
+        z-index: 3050 !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        transition: opacity 0.25s ease !important;
+        display: block !important;
+    }
+    .search-sidebar-overlay.is-open {
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+
+    .search-sidebar {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        width: 280px !important;
+        background: #0f172a !important;
+        border-right: 1px solid rgba(148,163,184,0.18) !important;
+        z-index: 3100 !important;
+        transform: translateX(-100%) !important;
+        transition: transform 0.25s ease !important;
+        padding: 20px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        box-shadow: 10px 0 30px rgba(0,0,0,0.5) !important;
+    }
+    .search-sidebar.is-open {
+        transform: translateX(0) !important;
+    }
+
+    .search-sidebar-close-btn {
+        display: block !important;
+        background: transparent !important;
+        border: none !important;
+        color: #B5B7C5 !important;
+        font-size: 1.8rem !important;
+        cursor: pointer !important;
+        line-height: 1 !important;
+        transition: color 0.2s !important;
+    }
+    .search-sidebar-close-btn:hover {
+        color: #ffffff !important;
+    }
+
+    .search-shell {
+        display: block !important;
+        width: 100% !important;
+    }
+    .search-main {
+        width: 100% !important;
+    }
+    .search-input-wrap {
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+    }
+    .search-input-wrap input {
+        flex: 1 !important;
+        flex-basis: auto !important;
+    }
+}
+
+/* Ensure these controls are hidden by default on desktop */
+.search-menu-toggle-btn,
+.search-sidebar-close-btn,
+.search-sidebar-overlay,
+.mobile-add-subject-wrap {
+    display: none;
+}
