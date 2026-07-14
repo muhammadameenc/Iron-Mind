@@ -2132,44 +2132,61 @@ refreshDashboard();
 /* ================= MOBILE SEARCH DRAWER ================= */
 
 (function initSearchDrawer() {
-    const openButton = document.getElementById("searchDrawerOpenButton");
-    const sidebar = document.querySelector(".search-sidebar");
+    const openButton  = document.getElementById("searchDrawerOpenButton");
+    const closeButton = document.getElementById("searchDrawerCloseButton");
+    const sidebar     = document.querySelector(".search-sidebar");
 
-    if (openButton && sidebar) {
-        let overlay = document.getElementById("searchDrawerOverlay");
-        if (!overlay) {
-            overlay = document.createElement("div");
-            overlay.id = "searchDrawerOverlay";
-            overlay.className = "search-drawer-overlay hidden";
-            document.body.appendChild(overlay);
-        }
+    if (!openButton || !sidebar) return;
 
-        const openDrawer = () => {
-            sidebar.classList.add("is-open");
-            overlay.classList.remove("hidden");
-            // force reflow
-            overlay.offsetHeight;
-            overlay.classList.add("is-visible");
-        };
-
-        const closeDrawer = () => {
-            sidebar.classList.remove("is-open");
-            overlay.classList.remove("is-visible");
-            setTimeout(() => {
-                if (!sidebar.classList.contains("is-open")) {
-                    overlay.classList.add("hidden");
-                }
-            }, 250);
-        };
-
-        openButton.addEventListener("click", openDrawer);
-        overlay.addEventListener("click", closeDrawer);
-
-        // Auto-close when clicking any filter option button
-        sidebar.addEventListener("click", event => {
-            if (event.target.closest(".subject-filter-item")) {
-                closeDrawer();
-            }
-        });
+    /* Create overlay once */
+    let overlay = document.getElementById("searchDrawerOverlay");
+    if (!overlay) {
+        overlay = document.createElement("div");
+        overlay.id = "searchDrawerOverlay";
+        overlay.className = "search-drawer-overlay hidden";
+        document.body.appendChild(overlay);
     }
+
+    const openDrawer = () => {
+        sidebar.classList.add("is-open");
+        overlay.classList.remove("hidden");
+        /* Force reflow so the CSS transition plays */
+        overlay.offsetHeight;
+        overlay.classList.add("is-visible");
+    };
+
+    const closeDrawer = () => {
+        sidebar.classList.remove("is-open");
+        overlay.classList.remove("is-visible");
+        setTimeout(() => {
+            if (!sidebar.classList.contains("is-open")) {
+                overlay.classList.add("hidden");
+            }
+        }, 280); /* Match CSS transition duration */
+    };
+
+    /* Open: hamburger button */
+    openButton.addEventListener("click", openDrawer);
+
+    /* Close: × button inside drawer header */
+    if (closeButton) {
+        closeButton.addEventListener("click", closeDrawer);
+    }
+
+    /* Close: tap on the overlay backdrop */
+    overlay.addEventListener("click", closeDrawer);
+
+    /* Close: Escape key */
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && sidebar.classList.contains("is-open")) {
+            closeDrawer();
+        }
+    });
+
+    /* Close: selecting any subject filter item auto-closes the drawer */
+    sidebar.addEventListener("click", (event) => {
+        if (event.target.closest(".subject-filter-item")) {
+            closeDrawer();
+        }
+    });
 })();
