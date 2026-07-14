@@ -1010,14 +1010,6 @@ function renderSubjectFilters(){
             selectedSubjectFilter = option;
             renderSubjectFilters();
             renderSearchResults();
-            
-            // Mobile: Auto-close sidebar on selection
-            const sidebar = document.getElementById("searchSidebar");
-            const overlay = document.getElementById("searchSidebarOverlay");
-            if (sidebar && sidebar.classList.contains("is-open")) {
-                sidebar.classList.remove("is-open");
-                overlay.classList.remove("is-open");
-            }
         });
         subjectFilterList.appendChild(item);
     });
@@ -1342,31 +1334,6 @@ addSubjectButton.addEventListener(
     openSubjectModal
 );
 
-const addSubjectButtonMobile = document.getElementById("addSubjectButtonMobile");
-if (addSubjectButtonMobile) {
-    addSubjectButtonMobile.addEventListener("click", openSubjectModal);
-}
-
-const searchMenuButton = document.getElementById("searchMenuButton");
-const searchSidebar = document.getElementById("searchSidebar");
-const searchSidebarOverlay = document.getElementById("searchSidebarOverlay");
-const closeSearchSidebar = document.getElementById("closeSearchSidebar");
-
-if (searchMenuButton && searchSidebar && searchSidebarOverlay) {
-    searchMenuButton.addEventListener("click", () => {
-        searchSidebar.classList.add("is-open");
-        searchSidebarOverlay.classList.add("is-open");
-    });
-
-    const closeSidebar = () => {
-        searchSidebar.classList.remove("is-open");
-        searchSidebarOverlay.classList.remove("is-open");
-    };
-
-    closeSearchSidebar?.addEventListener("click", closeSidebar);
-    searchSidebarOverlay.addEventListener("click", closeSidebar);
-}
-
 tabButtons.forEach(button => {
     button.addEventListener("click", () => showTab(button.dataset.tab));
 });
@@ -1507,14 +1474,6 @@ document.addEventListener("keydown", event => {
         closeAllSubjectMenus();
         closeDeleteConfirmModal();
         closeSettingsPanel();
-        
-        // Close Search Sidebar on Escape
-        const sidebar = document.getElementById("searchSidebar");
-        const overlay = document.getElementById("searchSidebarOverlay");
-        if (sidebar && sidebar.classList.contains("is-open")) {
-            sidebar.classList.remove("is-open");
-            overlay.classList.remove("is-open");
-        }
     }
 });
 
@@ -2169,3 +2128,48 @@ saveTaskBtn.addEventListener(
 
 processOverdueTasks();
 refreshDashboard();
+
+/* ================= MOBILE SEARCH DRAWER ================= */
+
+(function initSearchDrawer() {
+    const openButton = document.getElementById("searchDrawerOpenButton");
+    const sidebar = document.querySelector(".search-sidebar");
+
+    if (openButton && sidebar) {
+        let overlay = document.getElementById("searchDrawerOverlay");
+        if (!overlay) {
+            overlay = document.createElement("div");
+            overlay.id = "searchDrawerOverlay";
+            overlay.className = "search-drawer-overlay hidden";
+            document.body.appendChild(overlay);
+        }
+
+        const openDrawer = () => {
+            sidebar.classList.add("is-open");
+            overlay.classList.remove("hidden");
+            // force reflow
+            overlay.offsetHeight;
+            overlay.classList.add("is-visible");
+        };
+
+        const closeDrawer = () => {
+            sidebar.classList.remove("is-open");
+            overlay.classList.remove("is-visible");
+            setTimeout(() => {
+                if (!sidebar.classList.contains("is-open")) {
+                    overlay.classList.add("hidden");
+                }
+            }, 250);
+        };
+
+        openButton.addEventListener("click", openDrawer);
+        overlay.addEventListener("click", closeDrawer);
+
+        // Auto-close when clicking any filter option button
+        sidebar.addEventListener("click", event => {
+            if (event.target.closest(".subject-filter-item")) {
+                closeDrawer();
+            }
+        });
+    }
+})();
