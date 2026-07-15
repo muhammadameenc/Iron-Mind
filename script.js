@@ -360,6 +360,32 @@ function saveSettings(){
     localStorage.setItem("ironMindSettings", JSON.stringify(appSettings));
 }
 
+function showToast(message, type){
+    let container = document.getElementById("toastContainer");
+
+    if(!container){
+        container = document.createElement("div");
+        container.id = "toastContainer";
+        container.className = "toast-container";
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement("div");
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.classList.add("show");
+    });
+
+    setTimeout(() => {
+        toast.classList.remove("show");
+        toast.classList.add("hide");
+        setTimeout(() => toast.remove(), 300);
+    }, 2000);
+}
+
 const accentPresets = {
     purple: { accent: "#7C4DFF", bright: "#A78BFA", soft: "rgba(124,77,255,0.24)" },
     blue: { accent: "#2563EB", bright: "#38BDF8", soft: "rgba(37,99,235,0.24)" },
@@ -1240,7 +1266,7 @@ function saveSubject(){
 
     if(subjectName === ""){
 
-        alert("Subject name is required.");
+        showToast("Subject name cannot be empty.", "error");
         return;
     }
 
@@ -1253,7 +1279,7 @@ function saveSubject(){
 
     if(alreadyExists){
 
-        alert("This subject already exists.");
+        showToast("Subject already exists.", "error");
         return;
     }
 
@@ -1295,6 +1321,12 @@ function saveSubject(){
 
     closeSubjectModal();
 
+    if(editingSubjectIndex !== null){
+        showToast("Subject updated successfully.", "success");
+    } else {
+        showToast("Subject created successfully.", "success");
+    }
+
     buildSubjects();
 
     if(currentSubject){
@@ -1319,6 +1351,8 @@ function deleteSubject(index){
     if(currentSubject === subjectName){
         goHome();
     }
+
+    showToast("Subject deleted successfully.", "success");
 
     buildSubjects();
     refreshDashboard();
@@ -1536,6 +1570,26 @@ const taskTemplate =
 const taskModalTitle =
     document.getElementById("taskModalTitle");
 
+function syncDateInputWrap(){
+    const wrap = dateInput?.closest(".date-input-wrap");
+    if(!wrap) return;
+    wrap.classList.toggle("has-value", !!dateInput.value);
+}
+
+function openDateInputPicker(){
+    if(typeof dateInput?.showPicker === "function"){
+        try{
+            dateInput.showPicker();
+        } catch(error){
+            // Ignore when the browser blocks programmatic picker open.
+        }
+    }
+}
+
+dateInput?.addEventListener("click", openDateInputPicker);
+dateInput?.addEventListener("input", syncDateInputWrap);
+dateInput?.addEventListener("change", syncDateInputWrap);
+
 /* ================= TASK ID ================= */
 
 function generateId(){
@@ -1557,6 +1611,8 @@ function openTaskModal(){
     dateInput.value = "";
     remarksInput.value = "";
 
+    syncDateInputWrap();
+
     taskModal.classList.remove("hidden");
 }
 
@@ -1574,6 +1630,8 @@ function openEditTaskModal(taskId){
     sourceInput.value = task.source;
     dateInput.value = task.task_date;
     remarksInput.value = task.remarks;
+
+    syncDateInputWrap();
 
     taskModal.classList.remove("hidden");
 }
@@ -1595,9 +1653,24 @@ function saveTask(){
     const topic =
         topicInput.value.trim();
 
+    const dateValue =
+        dateInput.value.trim();
+
+    if(topic === "" && dateValue === ""){
+
+        showToast("Please complete all required fields.", "warning");
+        return;
+    }
+
     if(topic === ""){
 
-        alert("Topic is required.");
+        showToast("Task name cannot be empty.", "error");
+        return;
+    }
+
+    if(dateValue === ""){
+
+        showToast("Please select a date.", "error");
         return;
     }
 
@@ -1640,6 +1713,12 @@ function saveTask(){
     saveTasks();
 
     closeTaskModal();
+
+    if(editingTaskId !== null){
+        showToast("Task updated successfully.", "success");
+    } else {
+        showToast("Task created successfully.", "success");
+    }
 
     renderTasks();
 
@@ -1873,6 +1952,8 @@ function deleteTask(taskId){
         );
 
     saveTasks();
+
+    showToast("Task deleted successfully.", "success");
 
     renderTasks();
 

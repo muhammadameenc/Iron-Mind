@@ -2091,6 +2091,41 @@ main{
     resize:none;
 }
 
+.date-input-wrap{
+    position:relative;
+    width:100%;
+}
+
+.date-input-wrap input{
+    width:100%;
+}
+
+.date-input-placeholder{
+    position:absolute;
+    left:12px;
+    top:50%;
+    transform:translateY(-50%);
+    color:#9ca3af;
+    pointer-events:none;
+    display:none;
+}
+
+.date-input-wrap:not(.has-value) .date-input-placeholder{
+    display:block;
+}
+
+.date-input-wrap:not(.has-value) input[type="date"]::-webkit-datetime-edit{
+    color:transparent;
+}
+
+.date-input-wrap:not(.has-value) input[type="date"]{
+    color:transparent;
+}
+
+.date-input-wrap.has-value input[type="date"]{
+    color:white;
+}
+
 .priority-group{
     display:flex;
     flex-direction:column;
@@ -2646,4 +2681,59 @@ main{
         font-size:28px;
         letter-spacing:3px;
     }
+}
+
+/* ================= TOAST NOTIFICATIONS ================= */
+
+.toast-container{
+    position:fixed;
+    top:20px;
+    right:20px;
+    z-index:9999;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    pointer-events:none;
+}
+
+.toast{
+    width:300px;
+    max-width:calc(100vw - 40px);
+    padding:14px 18px;
+    border-radius:12px;
+    color:#ffffff;
+    font-size:14px;
+    font-weight:500;
+    line-height:1.4;
+    box-shadow:0 8px 24px rgba(0,0,0,0.25);
+    opacity:0;
+    transform:translateX(100%);
+    transition:opacity 0.3s ease, transform 0.3s ease;
+    pointer-events:none;
+}
+
+.toast.show{
+    opacity:1;
+    transform:translateX(0);
+}
+
+.toast.hide{
+    opacity:0;
+    transform:translateX(20px);
+}
+
+.toast-success{
+    background:#16a34a;
+}
+
+.toast-error{
+    background:#dc2626;
+}
+
+.toast-warning{
+    background:#ea580c;
+}
+
+.toast-info{
+    background:#2563eb;
 }
