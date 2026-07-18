@@ -2513,6 +2513,39 @@ main{
 .accent-swatch.green{ background:#16A34A; }
 .accent-swatch.orange{ background:#EA580C; }
 
+.settings-action-button{
+    width:100%;
+    min-height:42px;
+    margin-top:12px;
+    padding:0 14px;
+    border:1px solid rgba(181,183,197,0.18);
+    border-radius:10px;
+    background:#1B1C2A;
+    color:#ffffff;
+    font-size:0.9rem;
+    font-weight:700;
+    cursor:pointer;
+    transition:background 0.22s ease, border-color 0.22s ease, transform 0.22s ease;
+}
+
+.settings-action-button:hover{
+    background:var(--accent-soft);
+    border-color:var(--accent-bright);
+    transform:translateX(-2px);
+}
+
+.settings-danger-button{
+    background:rgba(220,38,38,0.15);
+    border-color:rgba(248,113,113,0.3);
+    color:#fecaca;
+}
+
+.settings-danger-button:hover{
+    background:rgba(220,38,38,0.25);
+    border-color:rgba(248,113,113,0.5);
+    color:#fca5a5;
+}
+
 .feedback-content h3{
     margin-bottom:10px;
     color:#ffffff;

@@ -1,0 +1,22 @@
+{
+  "name": "IRON MIND",
+  "short_name": "IRON MIND",
+  "description": "A productivity and study management application.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#7C4DFF",
+  "background_color": "#020617",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

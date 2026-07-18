@@ -10,6 +10,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=subject-tasks-7">
     <link rel="icon" type="image/png" href="./iron-mind-icon.png">
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#7C4DFF">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
 </head>
@@ -235,6 +237,9 @@
                         <label for="customDeleteDays">Number of Days</label>
                         <input id="customDeleteDays" type="number" min="1" inputmode="numeric" placeholder="Number of days">
                     </div>
+                    <button id="exportBackupButton" type="button" class="settings-action-button">Export Backup</button>
+                    <button id="importBackupButton" type="button" class="settings-action-button">Import Backup</button>
+                    <button id="deleteAllDataButton" type="button" class="settings-action-button settings-danger-button">Delete All Data</button>
                 </div>
 
                 <button class="settings-menu-button" type="button" data-settings-toggle="appearanceContent"><span>🎨 Appearance</span><span>⌄</span></button>
@@ -482,6 +487,20 @@
     </template>
 
     <script src="script.js?v=subject-tasks-7"></script>
+
+    <script>
+        if ("serviceWorker" in navigator) {
+            window.addEventListener("load", () => {
+                navigator.serviceWorker.register("./service-worker.js")
+                    .then(registration => {
+                        console.log("ServiceWorker registration successful");
+                    })
+                    .catch(error => {
+                        console.log("ServiceWorker registration failed:", error);
+                    });
+            });
+        }
+    </script>
 
 </body>
 </html>

@@ -360,6 +360,149 @@ function saveSettings(){
     localStorage.setItem("ironMindSettings", JSON.stringify(appSettings));
 }
 
+/* ================= BACKUP & DATA MANAGEMENT ================= */
+
+function exportBackup(){
+    const backupData = {
+        version: "1.0",
+        createdDate: new Date().toISOString(),
+        applicationData: {}
+    };
+
+    for(let i = 0; i < localStorage.length; i++){
+        const key = localStorage.key(i);
+        if(key && key.startsWith("ironMind")){
+            backupData.applicationData[key] = localStorage.getItem(key);
+        }
+    }
+
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    const filename = `IRON_MIND_Backup_${year}-${month}-${day}.json`;
+
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast("Backup exported successfully.", "success");
+}
+
+function importBackup(){
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.onchange = (event) => {
+        const file = event.target.files[0];
+        if(!file){
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try{
+                const content = e.target.result;
+                const backup = JSON.parse(content);
+
+                if(!backup.version || !backup.applicationData || typeof backup.applicationData !== "object"){
+                    showToast("Invalid backup file.", "error");
+                    return;
+                }
+
+                deleteConfirmTitle.textContent = "Import Backup";
+                deleteConfirmMessage.textContent = "This will replace all your current data with the selected backup. Do you want to continue?";
+                deleteConfirmModal.classList.remove("hidden");
+
+                const handleImportConfirm = () => {
+                    closeDeleteConfirmModal();
+                    confirmDeleteBtn.removeEventListener("click", handleImportConfirm);
+                    cancelDeleteBtn.removeEventListener("click", handleImportCancel);
+
+                    for(const key in backup.applicationData){
+                        localStorage.setItem(key, backup.applicationData[key]);
+                    }
+
+                    showToast("Backup restored successfully.", "success");
+                    setTimeout(() => location.reload(), 1000);
+                };
+
+                const handleImportCancel = () => {
+                    closeDeleteConfirmModal();
+                    confirmDeleteBtn.removeEventListener("click", handleImportConfirm);
+                    cancelDeleteBtn.removeEventListener("click", handleImportCancel);
+                };
+
+                confirmDeleteBtn.addEventListener("click", handleImportConfirm);
+                cancelDeleteBtn.addEventListener("click", handleImportCancel);
+            } catch(error){
+                showToast("Invalid backup file.", "error");
+            }
+        };
+        reader.onerror = () => {
+            showToast("Invalid backup file.", "error");
+        };
+        reader.readAsText(file);
+    };
+    input.click();
+}
+
+function deleteAllData(){
+    deleteConfirmTitle.textContent = "Delete All Data";
+    deleteConfirmMessage.textContent = "This will permanently remove all your data from IRON MIND.";
+    deleteConfirmModal.classList.remove("hidden");
+
+    const handleFirstConfirm = () => {
+        closeDeleteConfirmModal();
+        confirmDeleteBtn.removeEventListener("click", handleFirstConfirm);
+        cancelDeleteBtn.removeEventListener("click", handleFirstCancel);
+
+        deleteConfirmTitle.textContent = "Final Confirmation";
+        deleteConfirmMessage.textContent = "This action cannot be undone. Are you absolutely sure you want to delete all data?";
+        deleteConfirmModal.classList.remove("hidden");
+
+        const handleSecondConfirm = () => {
+            closeDeleteConfirmModal();
+            confirmDeleteBtn.removeEventListener("click", handleSecondConfirm);
+            cancelDeleteBtn.removeEventListener("click", handleSecondCancel);
+
+            for(let i = localStorage.length - 1; i >= 0; i--){
+                const key = localStorage.key(i);
+                if(key && key.startsWith("ironMind")){
+                    localStorage.removeItem(key);
+                }
+            }
+
+            showToast("All data deleted successfully.", "success");
+            setTimeout(() => location.reload(), 1000);
+        };
+
+        const handleSecondCancel = () => {
+            closeDeleteConfirmModal();
+            confirmDeleteBtn.removeEventListener("click", handleSecondConfirm);
+            cancelDeleteBtn.removeEventListener("click", handleSecondCancel);
+        };
+
+        confirmDeleteBtn.addEventListener("click", handleSecondConfirm);
+        cancelDeleteBtn.addEventListener("click", handleSecondCancel);
+    };
+
+    const handleFirstCancel = () => {
+        closeDeleteConfirmModal();
+        confirmDeleteBtn.removeEventListener("click", handleFirstConfirm);
+        cancelDeleteBtn.removeEventListener("click", handleFirstCancel);
+    };
+
+    confirmDeleteBtn.addEventListener("click", handleFirstConfirm);
+    cancelDeleteBtn.addEventListener("click", handleFirstCancel);
+}
+
 function showToast(message, type){
     let container = document.getElementById("toastContainer");
 
@@ -1431,6 +1574,14 @@ customDeleteDays.addEventListener("change", () => {
         renderSearchResults();
     }
 });
+
+const exportBackupButton = document.getElementById("exportBackupButton");
+const importBackupButton = document.getElementById("importBackupButton");
+const deleteAllDataButton = document.getElementById("deleteAllDataButton");
+
+exportBackupButton?.addEventListener("click", exportBackup);
+importBackupButton?.addEventListener("click", importBackup);
+deleteAllDataButton?.addEventListener("click", deleteAllData);
 
 searchInput?.addEventListener("input", renderSearchResults);
 
