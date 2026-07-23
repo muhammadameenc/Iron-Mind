@@ -1192,6 +1192,7 @@ function drawProgressCircle(progress){
     const centerY = 90;
 
     const radius = 72;
+    const isLightMode = document.documentElement.getAttribute("data-theme") === "light";
 
     /* BASE RING */
 
@@ -1205,17 +1206,30 @@ function drawProgressCircle(progress){
     );
 
     ctx.lineWidth = 16;
-    ctx.strokeStyle = "#1e293b";
+    ctx.strokeStyle = isLightMode ? "#D1D5DB" : "#1e293b";
     ctx.stroke();
+
+    /* Add subtle outline in light mode */
+    if (isLightMode) {
+        ctx.beginPath();
+        ctx.arc(
+            centerX,
+            centerY,
+            radius + 8, // Half of lineWidth (16/2) to center the outline around the ring
+            0,
+            Math.PI * 2
+        );
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "#9CA3AF";
+        ctx.stroke();
+    }
 
     let color = "#22c55e";
 
     if(progress < 40){
-
         color = "#ef4444";
     }
     else if(progress < 75){
-
         color = "#facc15";
     }
 
@@ -1237,8 +1251,7 @@ function drawProgressCircle(progress){
     ctx.strokeStyle = color;
     ctx.stroke();
 
-    const isLightMode = document.documentElement.getAttribute("data-theme") === "light";
-    ctx.fillStyle = isLightMode ? "#1F2937" : "white";
+    ctx.fillStyle = color;
     ctx.font = "bold 36px Arial";
     ctx.textAlign = "center";
 
@@ -1248,7 +1261,7 @@ function drawProgressCircle(progress){
         centerY - 8
     );
 
-    ctx.fillStyle = isLightMode ? "#6B7280" : "#9ca3af";
+    ctx.fillStyle = isLightMode ? "#4B5563" : "#e5e7eb";
     ctx.font = "16px Arial";
 
     ctx.fillText(

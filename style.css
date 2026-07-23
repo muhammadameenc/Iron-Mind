@@ -833,8 +833,8 @@ main{
     transition:transform 0.2s ease, filter 0.2s ease;
 }
 
-body.subject-page-open .app-footer .tab-btn.active{
-    box-shadow:none;
+body.subject-page-open .app-footer{
+    display: none;
 }
 
 #addSubjectButton:hover{
@@ -1722,7 +1722,7 @@ body.subject-page-open .app-footer .tab-btn.active{
 #subjectPage{
     position:fixed;
     inset:0;
-    background:var(--bg-panel);
+    background:var(--bg-modal);
     display:flex;
     flex-direction:column;
     overflow:hidden;
