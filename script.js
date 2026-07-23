@@ -146,10 +146,15 @@ let selectedSubjectFilter = "all";
 const subjectTaskView = { status: "all", date: "all", sort: "normal" };
 const searchTaskView = { status: "all", date: "all", sort: "normal" };
 
+// Back button navigation variables
+let lastBackPressTime = 0;
+let backPressTimer = null;
+const BACK_PRESS_TIMEOUT = 2000; // 2 seconds
+
 const defaultSettings = {
     autoDelete: "never",
     customDeleteDays: "",
-    accent: "purple"
+    theme: "dark"
 };
 
 function getStoredSettings(){
@@ -529,18 +534,172 @@ function showToast(message, type){
     }, 2000);
 }
 
-const accentPresets = {
-    purple: { accent: "#7C4DFF", bright: "#A78BFA", soft: "rgba(124,77,255,0.24)" },
-    blue: { accent: "#2563EB", bright: "#38BDF8", soft: "rgba(37,99,235,0.24)" },
-    green: { accent: "#16A34A", bright: "#4ADE80", soft: "rgba(22,163,74,0.24)" },
-    orange: { accent: "#EA580C", bright: "#FB923C", soft: "rgba(234,88,12,0.24)" }
+// Check if any modal/popup/settings is open
+function isAnyModalOpen() {
+    const modals = [
+        subjectModal,
+        taskModal,
+        deleteConfirmModal,
+        settingsOverlay.classList.contains("is-open") // settings panel is open
+    ];
+    // Also check any subject menus
+    const subjectMenus = document.querySelectorAll('.subject-menu:not(.hidden)');
+    return modals.some(modal => modal && !modal.classList.contains("hidden")) || subjectMenus.length > 0;
+}
+
+// Close the top-most modal/popup/settings
+function closeTopMostModal() {
+    // Check subject menus first
+    const subjectMenus = document.querySelectorAll('.subject-menu:not(.hidden)');
+    if (subjectMenus.length > 0) {
+        closeAllSubjectMenus();
+        return true;
+    }
+    // Check settings panel
+    if (settingsOverlay.classList.contains("is-open")) {
+        closeSettingsPanel();
+        return true;
+    }
+    // Check delete confirm modal
+    if (deleteConfirmModal && !deleteConfirmModal.classList.contains("hidden")) {
+        closeDeleteConfirmModal();
+        return true;
+    }
+    // Check task modal
+    if (taskModal && !taskModal.classList.contains("hidden")) {
+        closeTaskModal();
+        return true;
+    }
+    // Check subject modal
+    if (subjectModal && !subjectModal.classList.contains("hidden")) {
+        closeSubjectModal();
+        return true;
+    }
+    return false;
+}
+
+// Check if we're on a settings sub-page (help, about)
+function isSettingsSubPage() {
+    return !helpPage.classList.contains("hidden") || !aboutPage.classList.contains("hidden");
+}
+
+// Check if we're on subject page
+function isSubjectPage() {
+    return !subjectPage.classList.contains("hidden");
+}
+
+// Main back button handler
+function handleBackPress() {
+    // 1. Close any open modal/popup
+    if (isAnyModalOpen()) {
+        closeTopMostModal();
+        return;
+    }
+
+    // 2. Return from settings sub-pages
+    if (isSettingsSubPage()) {
+        returnFromSettingsPage();
+        return;
+    }
+
+    // 3. Return from subject page to home
+    if (isSubjectPage()) {
+        goHome();
+        return;
+    }
+
+    // 4. If on search or stats page, go back to home
+    if (activeTab === "search" || activeTab === "statistics") {
+        showTab("home");
+        return;
+    }
+
+    // 5. On home page: show exit toast or exit
+    const now = Date.now();
+    if (now - lastBackPressTime < BACK_PRESS_TIMEOUT) {
+        // Exit the app (if in PWA or WebView)
+        if (window.history.length > 1) {
+            window.history.back();
+        } else {
+            // For browsers, try to close the tab (might not work due to security)
+            window.close();
+        }
+    } else {
+        // Show "Press back again to exit" toast
+        showToast("Press back again to exit", "info");
+        lastBackPressTime = now;
+        // Reset timer after 2 seconds
+        if (backPressTimer) {
+            clearTimeout(backPressTimer);
+        }
+        backPressTimer = setTimeout(() => {
+            lastBackPressTime = 0;
+        }, BACK_PRESS_TIMEOUT);
+    }
+}
+
+// Handle browser back button (popstate)
+function handlePopState(event) {
+    handleBackPress();
+}
+
+// Initialize navigation
+function initNavigation() {
+    // Add event listener for browser back button
+    window.addEventListener('popstate', handlePopState);
+    
+    // Add event listener for physical back button (Android WebView)
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' || e.keyCode === 27) {
+            handleBackPress();
+        }
+    });
+    
+    // Add click listener to existing back button
+    if (backButton) {
+        backButton.addEventListener('click', () => {
+            handleBackPress();
+        });
+    }
+    
+    // Push initial state to history to prevent exiting on first back
+    if (window.history.length === 1) {
+        window.history.pushState({ page: 'home' }, '', window.location.href);
+    }
+}
+
+// Also override showTab, openSubjectPage, openSettingsPage to manage history if needed
+// Let's wrap these functions to update history
+const originalShowTab = showTab;
+showTab = function(tabName) {
+    originalShowTab(tabName);
+    // Update history state
+    if (tabName === 'home') {
+        window.history.pushState({ page: 'home' }, '', window.location.href);
+    } else if (tabName === 'search') {
+        window.history.pushState({ page: 'search' }, '', window.location.href);
+    } else if (tabName === 'statistics') {
+        window.history.pushState({ page: 'statistics' }, '', window.location.href);
+    }
 };
 
-function applyAccentColor(){
-    const accent = accentPresets[appSettings.accent] || accentPresets.purple;
-    document.documentElement.style.setProperty("--accent", accent.accent);
-    document.documentElement.style.setProperty("--accent-bright", accent.bright);
-    document.documentElement.style.setProperty("--accent-soft", accent.soft);
+const originalOpenSubjectPage = openSubjectPage;
+openSubjectPage = function(subjectName) {
+    originalOpenSubjectPage(subjectName);
+    window.history.pushState({ page: 'subject', subject: subjectName }, '', window.location.href);
+};
+
+const originalOpenSettingsPage = openSettingsPage;
+openSettingsPage = function(page) {
+    originalOpenSettingsPage(page);
+    let pageName = 'help';
+    if (page === aboutPage) pageName = 'about';
+    window.history.pushState({ page: pageName }, '', window.location.href);
+};
+
+function applyTheme(){
+    const theme = appSettings.theme || "dark";
+    document.documentElement.setAttribute("data-theme", theme);
 }
 
 function syncSettingsUI(){
@@ -550,8 +709,8 @@ function syncSettingsUI(){
     customDeleteDays.value = appSettings.customDeleteDays;
     customDeleteDaysWrap.classList.toggle("hidden", appSettings.autoDelete !== "custom");
 
-    document.querySelectorAll("[data-accent]").forEach(button => {
-        button.classList.toggle("active", button.dataset.accent === appSettings.accent);
+    document.querySelectorAll("[data-theme]").forEach(button => {
+        button.classList.toggle("active", button.dataset.theme === appSettings.theme);
     });
 }
 
@@ -861,6 +1020,8 @@ function openSubjectPage(subjectName){
     document.querySelectorAll(".page").forEach(page => page.classList.add("hidden"));
     subjectPage.classList.remove("hidden");
 
+    document.body.classList.add("subject-page-open");
+
     subjectTitle.textContent =
         subjectName;
 
@@ -889,6 +1050,7 @@ function goHome(){
     homePage.classList.remove("hidden");
     searchPage.classList.add("hidden");
     statisticsPage.classList.add("hidden");
+    document.body.classList.remove("subject-page-open");
     showTab("home");
     refreshDashboard();
 }
@@ -1075,7 +1237,8 @@ function drawProgressCircle(progress){
     ctx.strokeStyle = color;
     ctx.stroke();
 
-    ctx.fillStyle = "white";
+    const isLightMode = document.documentElement.getAttribute("data-theme") === "light";
+    ctx.fillStyle = isLightMode ? "#1F2937" : "white";
     ctx.font = "bold 36px Arial";
     ctx.textAlign = "center";
 
@@ -1085,7 +1248,7 @@ function drawProgressCircle(progress){
         centerY - 8
     );
 
-    ctx.fillStyle = "#9ca3af";
+    ctx.fillStyle = isLightMode ? "#6B7280" : "#9ca3af";
     ctx.font = "16px Arial";
 
     ctx.fillText(
@@ -1211,7 +1374,7 @@ function renderSearchResults(){
         const item = document.createElement("button");
         item.type = "button";
         item.className = "search-result-item";
-        item.innerHTML = `<div style="font-weight:700; margin-bottom:4px;">${task.subject}</div><div style="color:#cbd5e1;">${task.topic}</div>`;
+        item.innerHTML = `<div style="font-weight:700; margin-bottom:4px;">${task.subject}</div><div style="color:var(--text-secondary); font-weight:normal;">${task.topic}</div>`;
         item.addEventListener("click", () => {
             openSubjectPage(task.subject);
             setTimeout(() => {
@@ -1260,13 +1423,67 @@ function renderStatistics(){
         return `<div class="bar-row"><span>${day}</span><div class="bar-track"><div class="bar-fill" style="width:${percentage}%"></div></div><span>${percentage}%</span></div>`;
     }).join("");
 
-    const days = Array.from({length: 35}, (_, index) => index);
-    monthlyGrid.innerHTML = days.map(() => '<div class="contribution-cell"></div>').join("");
-    const completedDays = tasks.filter(task => task.status === "Completed").length;
-    const missedDays = tasks.filter(task => task.status === "Missed").length;
+    // Monthly Activity calendar: last 35 days
+    const today = getStartOfToday();
+    const daysArray = [];
+    for (let i = 34; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(today.getDate() - i);
+        daysArray.push(date);
+    }
+    
+    monthlyGrid.innerHTML = daysArray.map(() => '<div class="contribution-cell"></div>').join("");
+    
+    // Helper to get date key (YYYY-MM-DD)
+    const getDateKey = (date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+    
+    // Group tasks by date
+    const tasksByDate = {};
+    tasks.forEach(task => {
+        const taskDate = convertToDate(task.task_date);
+        if (!taskDate) return;
+        const dateKey = getDateKey(taskDate);
+        if (!tasksByDate[dateKey]) {
+            tasksByDate[dateKey] = [];
+        }
+        tasksByDate[dateKey].push(task);
+    });
+    
     monthlyGrid.querySelectorAll('.contribution-cell').forEach((cell, index) => {
-        if(index < completedDays % 35) cell.classList.add('completed');
-        else if(index < (completedDays + missedDays) % 35) cell.classList.add('missed');
+        const date = daysArray[index];
+        const dateKey = getDateKey(date);
+        
+        // Future dates: empty (default gray)
+        if (date > today) {
+            // Keep default background, no class
+            return;
+        }
+        
+        const dayTasks = tasksByDate[dateKey] || [];
+        
+        // No tasks: keep default gray
+        if (dayTasks.length === 0) {
+            return;
+        }
+        
+        // Calculate completion percentage
+        const completedCount = dayTasks.filter(task => task.status === "Completed").length;
+        const totalCount = dayTasks.length;
+        const completionPercent = (completedCount / totalCount) * 100;
+        
+        // Apply class based on percentage
+        if (completionPercent >= 80) {
+            cell.classList.add('completed');
+        } else if (completionPercent >= 30) {
+            cell.classList.add('partial');
+        } else {
+            cell.classList.add('missed');
+        }
     });
 
     const completedPercent = tasks.length ? (completed / tasks.length) * 100 : 0;
@@ -1543,11 +1760,11 @@ document.querySelectorAll("[data-settings-return]").forEach(button => {
     button.addEventListener("click", returnFromSettingsPage);
 });
 
-document.querySelectorAll("[data-accent]").forEach(button => {
+document.querySelectorAll("[data-theme]").forEach(button => {
     button.addEventListener("click", () => {
-        appSettings.accent = button.dataset.accent;
+        appSettings.theme = button.dataset.theme;
         saveSettings();
-        applyAccentColor();
+        applyTheme();
         syncSettingsUI();
     });
 });
@@ -1652,13 +1869,74 @@ document.addEventListener("click", event => {
     }
 });
 
+// Check if any modal/popup/settings is open
+function isAnyModalOpen() {
+    const searchSidebar = document.querySelector('.search-sidebar');
+    const modals = [
+        subjectModal,
+        taskModal,
+        deleteConfirmModal,
+        settingsOverlay.classList.contains("is-open"), // settings panel is open
+        searchSidebar && searchSidebar.classList.contains("is-open") // search drawer is open
+    ];
+    // Also check any subject menus
+    const subjectMenus = document.querySelectorAll('.subject-menu:not(.hidden)');
+    return modals.some(modal => {
+        if (typeof modal === 'boolean') return modal;
+        return modal && !modal.classList.contains("hidden");
+    }) || subjectMenus.length > 0;
+}
+
+// Close the top-most modal/popup/settings
+function closeTopMostModal() {
+    // Check subject menus first
+    const subjectMenus = document.querySelectorAll('.subject-menu:not(.hidden)');
+    if (subjectMenus.length > 0) {
+        closeAllSubjectMenus();
+        return true;
+    }
+    // Check search drawer
+    const searchSidebar = document.querySelector('.search-sidebar');
+    const searchOverlay = document.getElementById('searchDrawerOverlay');
+    if (searchSidebar && searchSidebar.classList.contains("is-open")) {
+        // Close search drawer
+        searchSidebar.classList.remove("is-open");
+        if (searchOverlay) {
+            searchOverlay.classList.remove("is-visible");
+            setTimeout(() => {
+                if (!searchSidebar.classList.contains("is-open")) {
+                    searchOverlay.classList.add("hidden");
+                }
+            }, 280);
+        }
+        return true;
+    }
+    // Check settings panel
+    if (settingsOverlay.classList.contains("is-open")) {
+        closeSettingsPanel();
+        return true;
+    }
+    // Check delete confirm modal
+    if (deleteConfirmModal && !deleteConfirmModal.classList.contains("hidden")) {
+        closeDeleteConfirmModal();
+        return true;
+    }
+    // Check task modal
+    if (taskModal && !taskModal.classList.contains("hidden")) {
+        closeTaskModal();
+        return true;
+    }
+    // Check subject modal
+    if (subjectModal && !subjectModal.classList.contains("hidden")) {
+        closeSubjectModal();
+        return true;
+    }
+    return false;
+}
+
 document.addEventListener("keydown", event => {
     if(event.key === "Escape"){
-        closeSubjectModal();
-        closeTaskModal();
-        closeAllSubjectMenus();
-        closeDeleteConfirmModal();
-        closeSettingsPanel();
+        closeTopMostModal();
     }
 });
 
@@ -1671,7 +1949,7 @@ saveSubjectBtn.addEventListener(
 );
 /* ================= START APP ================= */
 
-applyAccentColor();
+applyTheme();
 syncSettingsUI();
 applyAutoDeleteTasks();
 buildSubjects();
@@ -2422,3 +2700,17 @@ refreshDashboard();
         }
     });
 })();
+
+// Initialize navigation (back button handling)
+function initNavigation() {
+    // Handle browser back button
+    window.addEventListener('popstate', (event) => {
+        if (isAnyModalOpen()) {
+            event.preventDefault();
+            closeTopMostModal();
+        }
+    });
+}
+
+// Initialize back button navigation
+initNavigation();

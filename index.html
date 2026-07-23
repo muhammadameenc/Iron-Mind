@@ -253,11 +253,9 @@
 
                 <button class="settings-menu-button" type="button" data-settings-toggle="appearanceContent"><span>🎨 Appearance</span><span>⌄</span></button>
                 <div id="appearanceContent" class="settings-expandable hidden">
-                    <span class="settings-field-label">Accent Color</span>
-                    <button class="accent-option" type="button" data-accent="purple"><span class="accent-swatch purple"></span>Purple <small>(Default)</small></button>
-                    <button class="accent-option" type="button" data-accent="blue"><span class="accent-swatch blue"></span>Blue</button>
-                    <button class="accent-option" type="button" data-accent="green"><span class="accent-swatch green"></span>Green</button>
-                    <button class="accent-option" type="button" data-accent="orange"><span class="accent-swatch orange"></span>Orange</button>
+                    <span class="settings-field-label">Theme</span>
+                    <button class="accent-option" type="button" data-theme="dark"><span class="accent-swatch purple"></span>🌙 Dark Mode <small>(Default)</small></button>
+                    <button class="accent-option" type="button" data-theme="light"><span class="accent-swatch blue"></span>☀️ Light Mode</button>
                 </div>
 
                 <button class="settings-menu-button" type="button" data-settings-page="helpPage">📖 Help &amp; User Guide</button>
@@ -322,16 +320,16 @@
                 </div>
             </div>
 
-            <button id="addTaskButton" type="button">
-                + Add Task
-            </button>
-
         </div>
 
         <!-- Task Area -->
         <section id="taskContainer" aria-live="polite">
 
         </section>
+
+        <button id="addTaskButton" type="button">
+            + Add Task
+        </button>
 
     </div>
 <!-- ================= ADD SUBJECT MODAL ================= -->
