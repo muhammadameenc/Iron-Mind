@@ -2194,7 +2194,16 @@ body.subject-page-open .app-footer{
 }
 
 .date-input-wrap.has-value input[type="date"]{
-    color:white;
+    color: var(--text-primary);
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7);
+    cursor: pointer;
+}
+
+[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.2);
 }
 
 .priority-group{
