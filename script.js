@@ -159,7 +159,16 @@ const defaultSettings = {
 
 function getStoredSettings(){
     try{
-        return JSON.parse(localStorage.getItem("ironMindSettings") || "{}");
+        const stored = JSON.parse(localStorage.getItem("ironMindSettings") || "{}");
+        
+        // Migrate old accent color themes to dark mode
+        if (stored.theme === "purple" || stored.theme === "green" || stored.theme === "orange") {
+            stored.theme = "dark";
+            // Save migrated settings immediately
+            localStorage.setItem("ironMindSettings", JSON.stringify(stored));
+        }
+        
+        return stored;
     } catch(error){
         return {};
     }
@@ -169,6 +178,21 @@ let appSettings = {
     ...defaultSettings,
     ...getStoredSettings()
 };
+
+// One-time cache reset for users with old cached data
+(function migrateThemeSettings() {
+    try {
+        const currentSettings = JSON.parse(localStorage.getItem("ironMindSettings") || "{}");
+        const oldThemes = ["purple", "green", "orange"];
+        if (oldThemes.includes(currentSettings.theme)) {
+            currentSettings.theme = "dark";
+            localStorage.setItem("ironMindSettings", JSON.stringify(currentSettings));
+            appSettings.theme = "dark";
+        }
+    } catch (e) {
+        // Ignore errors, use defaults
+    }
+})();
 
 const subjectModal =
     document.getElementById("subjectModal");
