@@ -1,0 +1,22 @@
+project_id = "iron-mind"
+
+[auth]
+site_url = "http://127.0.0.1:8000"
+additional_redirect_urls = ["http://127.0.0.1:8000/**"]
+
+# Keep this CLI project separate from the existing iron-mind-test stack on the default ports.
+[api]
+port = 55321
+
+[db]
+port = 55322
+shadow_port = 55320
+
+[studio]
+port = 55323
+
+[local_smtp]
+port = 55324
+
+[analytics]
+port = 55327

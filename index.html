@@ -8,7 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=iron-mind-v2">
+    <link rel="stylesheet" href="style.css?v=iron-mind-v5-account-workspaces">
+    <link rel="stylesheet" href="./vendor/mathlive/mathlive-fonts.css">
+    <link rel="stylesheet" href="./vendor/mathlive/mathlive-static.css">
     <link rel="icon" type="image/png" href="./iron-mind-icon.png">
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#7C4DFF">
@@ -124,6 +126,58 @@
                 </div>
             </section>
 
+            <section id="projectPage" class="page hidden project-page project-page-empty" aria-labelledby="projectEmptyTitle">
+                <div class="project-page-content">
+                    <div id="projectHomeView" class="project-home-view">
+                        <header id="projectPageHeader" class="project-home-header hidden">
+                            <h1 id="projectPageTitle">My Projects</h1>
+                            <p id="projectPageSubtitle">Your space to learn, organize and build.</p>
+                        </header>
+                        <section id="projectSubjectGrid" class="project-subject-grid hidden" aria-label="Subjects"></section>
+                        <section id="projectEmptyState" class="project-empty-state hidden" aria-labelledby="projectEmptyTitle">
+                            <div class="project-empty-content">
+                                <div class="project-empty-icon" aria-hidden="true"><i class="fa-solid fa-layer-group"></i></div>
+                                <h1 id="projectEmptyTitle">Your Project Workspace</h1>
+                                <h2>Ready to build your workspace?</h2>
+                                <p>Create your first subject and start organizing your learning.</p>
+                                <button id="projectAddSubjectButton" class="project-add-subject-tile" type="button" data-project-add-subject aria-label="Add Subject">
+                                    <i class="fa-solid fa-plus" aria-hidden="true"></i><span>Add Subject</span>
+                                </button>
+                            </div>
+                        </section>
+                    </div>
+
+                    <section id="projectSubjectWorkspace" class="project-subject-workspace hidden" aria-label="Subject workspace">
+                        <div class="project-workspace-layout">
+                            <button id="projectTreeScrim" class="project-tree-scrim hidden" type="button" aria-label="Close topic navigation"></button>
+                            <aside id="projectTopicSidebar" class="project-topic-sidebar" aria-label="Topic navigation">
+                                <div class="project-topic-sidebar-heading">
+                                    <button id="projectBackToSubjects" class="project-back-button" type="button"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><span>Back to Projects</span></button>
+                                    <h2 id="projectSidebarSubjectTitle"></h2>
+                                </div>
+                                <div id="projectTopicTree" class="project-topic-tree"></div>
+                            </aside>
+                            <section id="projectTopicMain" class="project-topic-main" aria-label="Subject and topic workspace" tabindex="-1">
+                                <header class="project-workspace-header">
+                                    <button id="projectOpenTreeButton" class="project-tree-open-button" type="button" aria-expanded="false" aria-controls="projectTopicSidebar"><i class="fa-solid fa-list-tree" aria-hidden="true"></i><span>Topics</span></button>
+                                    <h1 id="projectWorkspaceSubjectTitle"></h1>
+                                    <div class="project-workspace-actions" aria-label="Workspace actions">
+                                        <button id="projectCreateNoteButton" class="project-header-action project-notes-card" type="button" data-project-later="Create Notes" data-project-owner-type="subject"><i class="fa-regular fa-pen-to-square" aria-hidden="true"></i><span>Create Note</span></button>
+                                        <button id="projectAddResourcesButton" class="project-header-action project-resources-card" type="button" data-project-later="Add Resources" data-project-owner-type="subject"><i class="fa-solid fa-box-archive" aria-hidden="true"></i><span>Add Resources</span></button>
+                                        <button id="projectAddTopicButton" class="project-header-action" type="button"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>Add Subtopic</span></button>
+                                        <button id="projectSearchButton" class="project-header-action" type="button"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span>Search</span></button>
+                                    </div>
+                                </header>
+                                <div id="projectTopicWelcome" class="project-topic-welcome">
+                                </div>
+                                <article id="projectTopicDetail" class="project-topic-detail hidden" aria-live="polite"></article>
+                                <section id="projectNoteView" class="project-note-view hidden" aria-live="polite"></section>
+                            </section>
+                        </div>
+                    </section>
+                </div>
+            </section>
+
             <section id="statisticsPage" class="page hidden">
                 <div class="stats-grid stats-page-only">
                     <div class="stat-card stat-summary">
@@ -147,7 +201,7 @@
                         <div id="weeklyBars" class="bars-stack"></div>
                     </div>
 
-                    <div class="stat-card">
+                    <div class="stat-card monthly-activity-card">
                         <div class="panel-head">
                             <span>Monthly Activity</span>
                         </div>
@@ -216,11 +270,19 @@
                 <button id="addSubjectButton" type="button">+ Add Subject</button>
             </div>
             <nav class="tab-bar app-tab-bar" role="tablist" aria-label="Main sections">
-                <button class="tab-btn active" data-tab="home" type="button">🏠 Home</button>
-                <button class="tab-btn" data-tab="search" type="button">🔍 Search</button>
-                <button class="tab-btn" data-tab="stats" type="button">📊 Statistics</button>
+                <button class="tab-btn active" data-tab="home" type="button" aria-controls="homePage" aria-current="page"><span class="tab-icon" aria-hidden="true">🏠</span><span class="tab-label">Home</span></button>
+                <button class="tab-btn" data-tab="search" type="button" aria-controls="searchPage"><span class="tab-icon" aria-hidden="true">🔍</span><span class="tab-label">Search</span></button>
+                <button class="tab-btn" data-tab="project" type="button" aria-controls="projectPage"><span class="tab-icon" aria-hidden="true">📁</span><span class="tab-label">Project</span></button>
+                <button class="tab-btn" data-tab="stats" type="button" aria-controls="statisticsPage"><span class="tab-icon" aria-hidden="true">📊</span><span class="tab-label">Statistics</span></button>
             </nav>
         </footer>
+    </div>
+
+    <div id="projectDialog" class="project-dialog-backdrop hidden" aria-hidden="true">
+        <section class="project-dialog-panel" role="dialog" aria-modal="true" aria-labelledby="projectDialogTitle" tabindex="-1">
+            <button id="projectDialogClose" class="project-dialog-close" type="button" aria-label="Close dialog">×</button>
+            <div id="projectDialogContent"></div>
+        </section>
     </div>
 
     <button id="settingsButton" class="settings-button" type="button" aria-label="Open settings" aria-expanded="false"><i class="fa-solid fa-gear"></i></button>
@@ -233,6 +295,38 @@
             </div>
 
             <div class="settings-menu">
+                <button class="settings-menu-button" type="button" data-settings-toggle="supabaseAccountContent" aria-controls="supabaseAccountContent" aria-expanded="false"><span>☁ Account</span><span>⌄</span></button>
+                <section id="supabaseAccountContent" class="settings-expandable cloud-account-content hidden" aria-label="Cloud account">
+                    <p class="cloud-account-intro">Each account has a separate local workspace on this device. Existing device data stays separate unless you choose to copy it.</p>
+                    <p id="supabaseAccountConfigNotice" class="cloud-account-notice" role="status">Supabase is not configured for this app origin. Use the local configuration for development, or add the exact deployment origin, Supabase Project URL, and publishable key to <code>supabase-config.production.js</code>.</p>
+                    <form id="supabaseAuthForm" class="cloud-account-form hidden" novalidate>
+                        <label for="supabaseAccountEmail">Email</label>
+                        <input id="supabaseAccountEmail" name="email" type="email" autocomplete="email" required>
+                        <label for="supabaseAccountPassword">Password</label>
+                        <input id="supabaseAccountPassword" name="password" type="password" autocomplete="current-password" required>
+                        <div class="cloud-account-actions">
+                            <button class="settings-action-button" type="submit" data-cloud-auth-action="signin">Sign In</button>
+                            <button class="settings-action-button" type="submit" data-cloud-auth-action="signup">Create Account</button>
+                        </div>
+                        <button id="supabasePasswordResetButton" class="cloud-account-link" type="button">Send password reset email</button>
+                    </form>
+                    <form id="supabasePasswordUpdateForm" class="cloud-account-form hidden" novalidate>
+                        <label for="supabaseNewPassword">New password</label>
+                        <input id="supabaseNewPassword" name="password" type="password" autocomplete="new-password" required>
+                        <button class="settings-action-button" type="submit">Save New Password</button>
+                    </form>
+                    <div id="supabaseSignedInPanel" class="cloud-account-signed-in hidden">
+                        <p>Signed in as <strong id="supabaseSignedInIdentity"></strong></p>
+                        <p id="supabaseWorkspaceLabel" class="cloud-account-notice"></p>
+                        <p class="cloud-account-notice">This account’s records stay in its local workspace on this device. Cloud synchronization is not enabled.</p>
+                        <button id="copyDeviceWorkspaceButton" class="settings-action-button" type="button">Copy device workspace into this account</button>
+                        <button id="openDeviceWorkspaceButton" class="settings-action-button" type="button">Open device workspace</button>
+                        <button id="openAccountWorkspaceButton" class="settings-action-button hidden" type="button">Open account workspace</button>
+                        <button id="supabaseSignOutButton" class="settings-action-button" type="button">Sign Out</button>
+                    </div>
+                    <p id="supabaseAccountStatus" class="cloud-account-status" role="status" aria-live="polite"></p>
+                </section>
+
                 <button class="settings-menu-button" type="button" data-settings-toggle="dataManagementContent"><span>🗂 Data Management</span><span>⌄</span></button>
                 <div id="dataManagementContent" class="settings-expandable hidden">
                     <label for="autoDeleteSelect">Auto-delete Tasks</label>
@@ -246,9 +340,12 @@
                         <label for="customDeleteDays">Number of Days</label>
                         <input id="customDeleteDays" type="number" min="1" inputmode="numeric" placeholder="Number of days">
                     </div>
-                    <button id="exportBackupButton" type="button" class="settings-action-button">Export Backup</button>
+                    <button id="recycleBinButton" type="button" class="settings-action-button">Recycle Bin <span id="recycleBinCount" class="recycle-bin-count">0</span></button>
+                    <button id="exportCompleteBackupButton" type="button" class="settings-action-button">Export Complete App Backup</button>
                     <button id="importBackupButton" type="button" class="settings-action-button">Import Backup</button>
                     <button id="deleteAllDataButton" type="button" class="settings-action-button settings-danger-button">Delete All Data</button>
+                    <p id="backupStatus" class="backup-status" role="status" aria-live="polite"></p>
+                    <button id="backupRecoveryButton" type="button" class="settings-action-button hidden">Recover Pre-Restore Snapshot</button>
                 </div>
 
                 <button class="settings-menu-button" type="button" data-settings-toggle="appearanceContent"><span>🎨 Appearance</span><span>⌄</span></button>
@@ -265,8 +362,51 @@
                     <h3>💬 Feedback</h3><p>Found a bug?</p><p>Have an idea?</p><p>Want to suggest a feature?</p><p>Email: <a href="mailto:ameencherikkandi@gmail.com">ameencherikkandi@gmail.com</a></p>
                     <a class="send-feedback-button" href="mailto:ameencherikkandi@gmail.com?subject=IRON%20MIND%20Feedback&amp;body=Device%3A%0AVersion%3A%0AFeedback%3A">📧 Send Feedback</a>
                 </div>
+
+                <button class="settings-menu-button" type="button" data-settings-toggle="appHealthContent" aria-controls="appHealthContent" aria-expanded="false"><span>🩺 App Health Check</span><span>⌄</span></button>
+                <section id="appHealthContent" class="settings-expandable app-health-content hidden" aria-label="App Health Check">
+                    <div class="app-health-heading">
+                        <div><h3>App Health Check</h3><p>Read-only checks for app integrity and local storage.</p></div>
+                        <span id="appHealthOverall" class="app-health-overall" data-status="idle">Not Run</span>
+                    </div>
+                    <button id="appHealthRunButton" class="settings-action-button app-health-run" type="button">Run Diagnostics</button>
+                    <p id="appHealthLastRun" class="app-health-last-run" aria-live="polite">Last run: Never</p>
+                    <ol id="appHealthResults" class="app-health-results" aria-live="polite">
+                        <li class="app-health-empty">Diagnostics have not been run in this session.</li>
+                    </ol>
+                </section>
             </div>
         </aside>
+    </div>
+
+    <div id="recycleBinDialog" class="recycle-bin-backdrop hidden" aria-hidden="true">
+        <section class="recycle-bin-panel" role="dialog" aria-modal="true" aria-labelledby="recycleBinTitle" tabindex="-1">
+            <header class="recycle-bin-header">
+                <div><h2 id="recycleBinTitle">Recycle Bin</h2><p>Recover deleted items or remove them permanently.</p></div>
+                <button id="recycleBinClose" class="recycle-bin-close" type="button" aria-label="Close Recycle Bin">×</button>
+            </header>
+            <div class="recycle-bin-toolbar">
+                <label class="recycle-bin-retention">Keep items for
+                    <select id="recycleBinRetentionSelect">
+                        <option value="7">7 days</option><option value="30">30 days</option><option value="60">60 days</option><option value="90">90 days</option>
+                    </select>
+                </label>
+                <input id="recycleBinSearch" type="search" placeholder="Search deleted items" aria-label="Search deleted items">
+                <select id="recycleBinTypeFilter" aria-label="Filter by item type">
+                    <option value="all">All types</option><option value="task">Tasks</option><option value="subject">Task subjects</option><option value="projectSubject">Project subjects</option><option value="topic">Topics</option><option value="note">Notes</option><option value="resource">Resources</option>
+                </select>
+                <select id="recycleBinDateFilter" aria-label="Filter by deletion date">
+                    <option value="all">Any date</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option>
+                </select>
+            </div>
+            <div class="recycle-bin-bulk-actions">
+                <span id="recycleBinSummary">0 recoverable items</span>
+                <div><button id="recycleBinRestoreAll" type="button">Restore All</button><button id="recycleBinDeleteAll" type="button" class="is-danger">Delete All</button></div>
+            </div>
+            <p id="recycleBinStatus" class="recycle-bin-status" role="status" aria-live="polite"></p>
+            <div id="recycleBinList" class="recycle-bin-list"></div>
+            <p class="recycle-bin-footnote">Permanently deleted items cannot be restored. Expired items are removed automatically.</p>
+        </section>
     </div>
 
     <!-- ================= SUBJECT PAGE ================= -->
@@ -493,7 +633,15 @@
 
     </template>
 
-    <script src="script.js?v=iron-mind-v2"></script>
+    <script src="./supabase-config.js"></script>
+    <script src="./vendor/mathlive/mathlive.min.js"></script>
+    <script>
+        if(window.MathfieldElement){
+            window.MathfieldElement.fontsDirectory = "./fonts";
+            window.MathfieldElement.soundsDirectory = null;
+        }
+    </script>
+    <script src="./workspace-bootstrap.js"></script>
 
     <script>
         if ("serviceWorker" in navigator) {
