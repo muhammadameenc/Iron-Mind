@@ -393,6 +393,20 @@
         });
     }
 
+    function matchesConfiguredSite(siteUrl){
+        try{
+            const configuredUrl = new URL(siteUrl);
+            const currentUrl = new URL(window.location.href);
+            if(!["http:", "https:"].includes(configuredUrl.protocol) || configuredUrl.origin !== currentUrl.origin ||
+                configuredUrl.username || configuredUrl.password || configuredUrl.search || configuredUrl.hash) return false;
+            const configuredPath = configuredUrl.pathname.replace(/\/+$/, "") || "/";
+            const currentPath = currentUrl.pathname.replace(/\/+$/, "") || "/";
+            return configuredPath === "/" || currentPath === configuredPath || currentPath.startsWith(`${configuredPath}/`);
+        }catch(error){
+            return false;
+        }
+    }
+
     async function loadApplication(userId, session, authWasAvailable){
         activeUserId = userId;
         currentSession = session || null;
@@ -463,7 +477,7 @@
                 const siteOrigin = typeof candidate?.siteOrigin === "string" ? candidate.siteOrigin.trim() : "";
                 const url = typeof candidate?.url === "string" ? candidate.url.trim() : "";
                 const publishableKey = typeof candidate?.publishableKey === "string" ? candidate.publishableKey.trim() : "";
-                if(siteOrigin === window.location.origin && url && publishableKey){
+                if(matchesConfiguredSite(siteOrigin) && url && publishableKey){
                     window.IRON_MIND_SUPABASE_CONFIG = Object.freeze({ siteOrigin, url, publishableKey });
                 }else{
                     window.IRON_MIND_SUPABASE_CONFIG = null;
