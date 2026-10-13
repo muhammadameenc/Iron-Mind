@@ -329,7 +329,21 @@
                     <div id="supabaseSignedInPanel" class="cloud-account-signed-in hidden">
                         <p>Signed in as <strong id="supabaseSignedInIdentity"></strong></p>
                         <p id="supabaseWorkspaceLabel" class="cloud-account-notice"></p>
-                        <p class="cloud-account-notice">This account’s records stay in its local workspace on this device. Cloud synchronization is not enabled.</p>
+                        <section id="cloudSyncPanel" class="cloud-sync-panel hidden" aria-label="Task and settings cloud sync">
+                            <h3>Task and settings cloud sync</h3>
+                            <p id="cloudSyncStatus" class="cloud-account-notice" role="status" aria-live="polite" data-sync-state="idle">Not synced</p>
+                            <p id="cloudSyncAccount" class="cloud-sync-account"></p>
+                            <button id="cloudSyncNowButton" class="settings-action-button" type="button">Sync now</button>
+                            <div id="cloudSyncPreview" class="cloud-sync-preview hidden" aria-live="polite">
+                                <p id="cloudSyncPreviewDetails"></p>
+                                <ul id="cloudSyncPreviewRecords" class="cloud-sync-preview-list"></ul>
+                                <div class="cloud-account-actions">
+                                    <button id="cloudSyncConfirmButton" class="settings-action-button" type="button">Confirm upload</button>
+                                    <button id="cloudSyncCancelButton" class="settings-action-button" type="button">Cancel</button>
+                                </div>
+                            </div>
+                            <p class="cloud-sync-note">First uploads require your confirmation. Sync does not delete cloud records; deletions and unresolved conflicts are stopped for review.</p>
+                        </section>
                         <button id="copyDeviceWorkspaceButton" class="settings-action-button" type="button">Copy device workspace into this account</button>
                         <button id="openDeviceWorkspaceButton" class="settings-action-button" type="button">Open device workspace</button>
                         <button id="openAccountWorkspaceButton" class="settings-action-button hidden" type="button">Open account workspace</button>

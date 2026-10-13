@@ -180,7 +180,7 @@
             }else{
                 session = result.data?.session || null;
                 if(action === "signup") passwordInput.value = "";
-                setStatus("Account ready. Its local workspace is separate; cloud sync is not enabled.");
+                setStatus("Account ready. Its local workspace is separate. Cloud sync is manual and available in Account settings.");
                 renderSession(session);
             }
         }catch(error){
@@ -330,7 +330,7 @@
             );
             if(!accepted){ setStatus("Copy cancelled. Device data was not changed."); return; }
             await workspace.copyDeviceToAccount(preview.token);
-            setStatus("Device data was copied. The original device workspace is unchanged. Opening the account workspace…");
+            setStatus("Device data was copied locally. The original device workspace is unchanged. Opening the account workspace…");
             workspace.openAccountWorkspace();
         }catch(error){
             setStatus(error?.message || "Device data could not be copied.", true);

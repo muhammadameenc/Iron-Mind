@@ -3496,6 +3496,18 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .cloud-account-link{margin-top:9px;padding:0;border:0;background:transparent;color:var(--accent-bright);font:inherit;font-size:.8rem;text-decoration:underline;cursor:pointer}
 .cloud-account-signed-in p{margin:0 0 10px;font-size:.84rem;overflow-wrap:anywhere}
 .cloud-account-status:empty{display:none}
+.cloud-sync-panel{margin:10px 0 14px;padding:12px;border:1px solid var(--border-color);border-radius:12px;background:rgba(37,99,235,.045)}
+.cloud-sync-panel h3{margin:0 0 9px;color:var(--text-primary);font-size:.9rem}
+.cloud-sync-panel .settings-action-button{width:100%;margin-top:8px}
+.cloud-sync-account,.cloud-sync-note{margin:8px 0;color:var(--text-tertiary);font-size:.76rem;line-height:1.45;overflow-wrap:anywhere}
+.cloud-sync-preview{margin-top:10px;padding:10px;border:1px solid var(--border-color);border-radius:9px;background:rgba(37,99,235,.08)}
+.cloud-sync-preview p{margin:0 0 8px;font-size:.8rem;line-height:1.5;overflow-wrap:anywhere}
+.cloud-sync-preview-list{max-height:190px;margin:0;padding:0 0 0 20px;overflow:auto;color:var(--text-secondary);font-size:.76rem;line-height:1.45}
+.cloud-sync-preview-list li{padding:2px 0;overflow-wrap:anywhere}
+.cloud-sync-preview .cloud-account-actions{grid-template-columns:1fr 1fr}
+.cloud-sync-preview .settings-action-button{margin-top:4px}
+#cloudSyncStatus[data-sync-state="synced"]{border-color:rgba(16,185,129,.45)}
+#cloudSyncStatus[data-sync-state="failed"],#cloudSyncStatus[data-sync-state="conflict"]{border-color:rgba(239,68,68,.5)}
 
 #customDeleteDaysWrap{
     margin-top:12px;
