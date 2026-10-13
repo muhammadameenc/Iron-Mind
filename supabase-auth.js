@@ -4,11 +4,17 @@
     const accountSection = document.getElementById("supabaseAccountContent");
     const configNotice = document.getElementById("supabaseAccountConfigNotice");
     const authForm = document.getElementById("supabaseAuthForm");
+    const signupVerificationForm = document.getElementById("supabaseSignupVerificationForm");
     const passwordUpdateForm = document.getElementById("supabasePasswordUpdateForm");
     const signedInPanel = document.getElementById("supabaseSignedInPanel");
     const accountStatus = document.getElementById("supabaseAccountStatus");
     const emailInput = document.getElementById("supabaseAccountEmail");
     const passwordInput = document.getElementById("supabaseAccountPassword");
+    const verificationCodeInput = document.getElementById("supabaseSignupVerificationCode");
+    const verificationEmail = document.getElementById("supabaseSignupVerificationEmail");
+    const resendCodeButton = document.getElementById("supabaseSignupResendCodeButton");
+    const resendCooldownNotice = document.getElementById("supabaseSignupResendCooldown");
+    const signupBackButton = document.getElementById("supabaseSignupBackButton");
     const newPasswordInput = document.getElementById("supabaseNewPassword");
     const signedInIdentity = document.getElementById("supabaseSignedInIdentity");
     const workspaceLabel = document.getElementById("supabaseWorkspaceLabel");
@@ -23,15 +29,83 @@
     let session = workspace.session || null;
     let recoveryMode = false;
     let busy = false;
+    let pendingSignupEmail = "";
+    let resendCooldownUntil = 0;
+    let resendCooldownTimer = null;
+    const RESEND_COOLDOWN_SECONDS = 60;
 
     function setStatus(message, isError = false){
         accountStatus.textContent = message;
         accountStatus.classList.toggle("is-error", isError);
     }
 
+    function remainingResendSeconds(){
+        return Math.max(0, Math.ceil((resendCooldownUntil - Date.now()) / 1000));
+    }
+
+    function updateResendCodeButton(){
+        if(!resendCodeButton) return;
+        const remaining = remainingResendSeconds();
+        resendCodeButton.textContent = remaining ? `Resend Code (${remaining}s)` : "Resend Code";
+        resendCodeButton.disabled = busy || remaining > 0 || !pendingSignupEmail;
+        if(resendCooldownNotice){
+            resendCooldownNotice.textContent = remaining
+                ? `You can request another code in ${remaining} seconds.`
+                : "You can request another code now.";
+        }
+    }
+
+    function startResendCooldown(seconds = RESEND_COOLDOWN_SECONDS){
+        const duration = Math.max(1, Math.ceil(Number(seconds) || RESEND_COOLDOWN_SECONDS));
+        resendCooldownUntil = Date.now() + duration * 1000;
+        if(resendCooldownTimer !== null) clearInterval(resendCooldownTimer);
+        updateResendCodeButton();
+        resendCooldownTimer = setInterval(() => {
+            updateResendCodeButton();
+            if(!remainingResendSeconds()){
+                clearInterval(resendCooldownTimer);
+                resendCooldownTimer = null;
+            }
+        }, 1000);
+    }
+
+    function clearResendCooldown(){
+        if(resendCooldownTimer !== null) clearInterval(resendCooldownTimer);
+        resendCooldownTimer = null;
+        resendCooldownUntil = 0;
+        updateResendCodeButton();
+    }
+
+    function isRateLimitError(error){
+        const details = `${error?.code || ""} ${error?.message || error?.msg || ""}`.toLowerCase();
+        return Number(error?.status) === 429 || /rate.?limit|too many requests|only request this after|email.{0,24}limit/.test(details);
+    }
+
+    function isInvalidOrExpiredOtp(error){
+        const details = `${error?.code || ""} ${error?.message || error?.msg || ""}`.toLowerCase();
+        return Number(error?.status) === 400 || /\b(?:invalid|expired)\b/.test(details);
+    }
+
+    function rateLimitWaitSeconds(error){
+        const details = `${error?.message || error?.msg || ""}`;
+        const match = details.match(/(?:after|in|wait(?:\s+for)?|retry(?:\s+in)?)\s+(\d{1,4})\s*(?:seconds?|secs?|s)\b/i);
+        return match ? Math.max(1, Number(match[1])) : RESEND_COOLDOWN_SECONDS;
+    }
+
+    function reportAuthError(error, fallback){
+        if(isRateLimitError(error)){
+            const waitSeconds = rateLimitWaitSeconds(error);
+            if(pendingSignupEmail) startResendCooldown(waitSeconds);
+            setStatus(`Supabase is limiting authentication requests. Wait ${waitSeconds} seconds before trying again.`, true);
+            return;
+        }
+        setStatus(error?.message || fallback, true);
+    }
+
     function setBusy(value){
         busy = value;
         accountSection.querySelectorAll("button").forEach(button => { button.disabled = value || (button === signOutButton && !workspace.authAvailable); });
+        updateResendCodeButton();
     }
 
     function renderSession(nextSession = session){
@@ -42,7 +116,8 @@
         if(configured && !workspace.authAvailable){
             configNotice.textContent = "Not signed in. Supabase could not verify an account session, so only the device workspace is open and account workspaces are locked.";
         }
-        authForm.classList.toggle("hidden", !configured || signedIn || recoveryMode || !workspace.authAvailable);
+        authForm.classList.toggle("hidden", !configured || signedIn || recoveryMode || Boolean(pendingSignupEmail) || !workspace.authAvailable);
+        signupVerificationForm?.classList.toggle("hidden", !configured || signedIn || recoveryMode || !pendingSignupEmail || !workspace.authAvailable);
         signedInPanel?.classList.toggle("hidden", !configured || !signedIn || recoveryMode);
         passwordUpdateForm?.classList.toggle("hidden", !configured || !recoveryMode || !workspace.authAvailable);
         if(signedInIdentity) signedInIdentity.textContent = user?.email || user?.id || "Account";
@@ -55,6 +130,16 @@
         openDeviceButton?.classList.toggle("hidden", !signedIn || !workspace.userId);
         openAccountButton?.classList.toggle("hidden", !signedIn || Boolean(workspace.userId));
         if(signOutButton) signOutButton.disabled = busy || !workspace.authAvailable;
+        updateResendCodeButton();
+    }
+
+    function showSignupVerification(email){
+        pendingSignupEmail = email;
+        if(verificationEmail) verificationEmail.textContent = email;
+        if(verificationCodeInput) verificationCodeInput.value = "";
+        passwordInput.value = "";
+        startResendCooldown();
+        renderSession(null);
     }
 
     async function getClient(){
@@ -65,6 +150,11 @@
 
     window.addEventListener("iron-mind-auth-session", event => {
         session = event.detail?.session || null;
+        if(event.detail?.event === "SIGNED_IN"){
+            pendingSignupEmail = "";
+            if(verificationCodeInput) verificationCodeInput.value = "";
+            clearResendCooldown();
+        }
         renderSession(session);
         if(event.detail?.event === "SIGNED_OUT") setStatus("Signed out. The device workspace is separate from account data.");
     });
@@ -85,17 +175,86 @@
                 : await client.auth.signInWithPassword({ email, password });
             if(result.error) throw result.error;
             if(action === "signup" && !result.data?.session){
-                setStatus("Registration started. Check your email to confirm the account, then sign in.");
+                showSignupVerification(email);
+                setStatus("If this address can be registered, a verification code has been sent. Enter it to continue.");
             }else{
                 session = result.data?.session || null;
+                if(action === "signup") passwordInput.value = "";
                 setStatus("Account ready. Its local workspace is separate; cloud sync is not enabled.");
                 renderSession(session);
             }
         }catch(error){
-            setStatus(error?.message || "Supabase authentication could not be completed.", true);
+            reportAuthError(error, "Supabase authentication could not be completed.");
         }finally{
             setBusy(false);
         }
+    });
+
+    signupVerificationForm?.addEventListener("submit", async event => {
+        event.preventDefault();
+        if(busy) return;
+        const token = verificationCodeInput.value.trim();
+        if(!pendingSignupEmail){ setStatus("Start account registration again to request a verification code.", true); return; }
+        if(!/^\d+$/.test(token)){ setStatus("Enter the numeric verification code from the latest email.", true); verificationCodeInput.focus(); return; }
+        setBusy(true);
+        setStatus("Verifying your email…");
+        try{
+            const client = await getClient();
+            const { data, error } = await client.auth.verifyOtp({ email:pendingSignupEmail, token, type:"email" });
+            if(error) throw error;
+            session = data?.session || null;
+            pendingSignupEmail = "";
+            verificationCodeInput.value = "";
+            clearResendCooldown();
+            if(session){
+                setStatus("Email verified. Opening your account’s local workspace…");
+                renderSession(session);
+            }else{
+                renderSession(null);
+                setStatus("Email verified. Sign in to continue.");
+            }
+        }catch(error){
+            verificationCodeInput.value = "";
+            verificationCodeInput.focus();
+            if(isRateLimitError(error)) reportAuthError(error, "Too many verification attempts.");
+            else if(isInvalidOrExpiredOtp(error)) setStatus("That code is invalid or expired. Try the latest code or request another one.", true);
+            else setStatus(error?.message || "Email verification could not be completed. Check your connection and try again.", true);
+        }finally{
+            setBusy(false);
+        }
+    });
+
+    resendCodeButton?.addEventListener("click", async () => {
+        if(busy || !pendingSignupEmail) return;
+        const remaining = remainingResendSeconds();
+        if(remaining){
+            setStatus(`Please wait ${remaining} seconds before requesting another code.`, true);
+            return;
+        }
+        setBusy(true);
+        setStatus("Requesting another verification code…");
+        try{
+            const client = await getClient();
+            const { error } = await client.auth.resend({ type:"signup", email:pendingSignupEmail });
+            if(error) throw error;
+            startResendCooldown();
+            setStatus("If this address has a pending registration, a new verification code is on its way.");
+        }catch(error){
+            if(isRateLimitError(error)) reportAuthError(error, "The verification code could not be resent.");
+            else setStatus(error?.message || "The verification code could not be resent.", true);
+        }finally{
+            setBusy(false);
+        }
+    });
+
+    signupBackButton?.addEventListener("click", () => {
+        if(busy) return;
+        pendingSignupEmail = "";
+        if(verificationCodeInput) verificationCodeInput.value = "";
+        clearResendCooldown();
+        renderSession(null);
+        setStatus("Verification closed. Sign in or create an account to continue.");
+        emailInput.focus();
     });
 
     passwordResetButton?.addEventListener("click", async () => {
