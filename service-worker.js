@@ -8,7 +8,7 @@ const urlsToCache = [
     "./supabase-config.js",
     "./supabase-config.production.js",
     "./supabase-auth.js",
-    "./supabase-sync.js?v=iron-mind-task-settings-sync-v1",
+    "./supabase-sync.js?v=iron-mind-task-settings-sync-v2",
     "./workspace-bootstrap.js",
     "./icons/icon-192.png",
     "./icons/icon-512.png",

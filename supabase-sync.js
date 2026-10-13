@@ -1,4 +1,4 @@
-/* Manual, local-first sync for task subjects, tasks, and user settings. */
+/* Manual, local-first sync for tasks, settings, and Project subjects/topics. */
 (function setupIronMindCloudSync(){
     "use strict";
 
@@ -73,7 +73,7 @@
 
     function setOfflineStatus(){
         if(navigator.onLine === false){
-            setStatus("offline", "Offline. Tasks, subjects, and settings remain available locally.");
+            setStatus("offline", "Offline. Tasks, subjects, Projects, topics, and settings remain available locally.");
             return true;
         }
         return false;
@@ -102,6 +102,20 @@
 
     function normalizeSubjectName(value){
         return String(value || "").trim().toLowerCase();
+    }
+
+    function isUuid(value){
+        return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+    }
+
+    function validateTopicSiblingOrder(topics, label){
+        const occupiedOrders = new Set();
+        topics.forEach(topic => {
+            const group = JSON.stringify([topic.canonical.subjectId, topic.canonical.parentId]);
+            const key = JSON.stringify([group, topic.canonical.order]);
+            if(occupiedOrders.has(key)) throw new SyncConflictError(`${label} Project topics have ambiguous sibling order; resolve the order before syncing.`);
+            occupiedOrders.add(key);
+        });
     }
 
     function toIsoDate(value){
@@ -143,9 +157,9 @@
         }
     }
 
-    function makeLocalData(subjectRows, taskRows, settings){
+    function makeLocalData(subjectRows, taskRows, settings, projectSubjectRows, projectTopicRows){
         const localSubjects = new Map();
-        if(!Array.isArray(subjectRows) || !Array.isArray(taskRows)){
+        if(!Array.isArray(subjectRows) || !Array.isArray(taskRows) || !Array.isArray(projectSubjectRows) || !Array.isArray(projectTopicRows)){
             throw new SyncConflictError("Local tasks or subjects are not in the expected format.");
         }
         subjectRows.forEach(subject => {
@@ -188,7 +202,68 @@
         if(settings !== null && (!settings || typeof settings !== "object" || Array.isArray(settings))){
             throw new SyncConflictError("Local settings are not an object; no data was changed.");
         }
-        return { subjects:localSubjects, tasks:localTasks, settings };
+
+        const localProjectSubjects = new Map();
+        const localProjectNames = new Set();
+        projectSubjectRows.forEach(subject => {
+            if(!subject || !isUuid(subject.id) || typeof subject.name !== "string" || !subject.name.trim()){
+                throw new SyncConflictError("A Project subject is invalid or has an ID the cloud schema cannot preserve; no data was changed.");
+            }
+            const key = subject.id;
+            const nameKey = normalizeSubjectName(subject.name);
+            if(localProjectSubjects.has(key)) throw new SyncConflictError("Local Project subjects contain duplicate IDs; no data was changed.");
+            if(localProjectNames.has(nameKey)) throw new SyncConflictError("Local Project subjects contain duplicate names; no data was changed.");
+            localProjectNames.add(nameKey);
+            localProjectSubjects.set(key, {
+                key,
+                id:subject.id,
+                canonical:{ name:subject.name, priority:String(subject.priority || "high") },
+                original:subject
+            });
+        });
+
+        const localProjectTopics = new Map();
+        const localTopicNames = new Set();
+        projectTopicRows.forEach(topic => {
+            if(!topic || !isUuid(topic.id) || !isUuid(topic.subjectId) ||
+                (topic.parentId !== null && topic.parentId !== undefined && !isUuid(topic.parentId)) ||
+                typeof topic.name !== "string" || !topic.name.trim() ||
+                !Number.isInteger(Number(topic.order)) || Number(topic.order) < 0){
+                throw new SyncConflictError("A Project topic has invalid IDs, a name, or an order; no data was changed.");
+            }
+            const key = topic.id;
+            if(localProjectTopics.has(key)) throw new SyncConflictError("Local Project topics contain duplicate IDs; no data was changed.");
+            if(!localProjectSubjects.has(topic.subjectId)) throw new SyncConflictError("A Project topic refers to a missing subject; no data was changed.");
+            if(topic.parentId && !projectTopicRows.some(parent => parent?.id === topic.parentId && parent.subjectId === topic.subjectId)){
+                throw new SyncConflictError("A Project subtopic refers to a missing or different-subject parent; no data was changed.");
+            }
+            const nameKey = JSON.stringify([topic.subjectId, topic.parentId || null, normalizeSubjectName(topic.name)]);
+            if(localTopicNames.has(nameKey)) throw new SyncConflictError("Project topics contain duplicate sibling names; no data was changed.");
+            localTopicNames.add(nameKey);
+            localProjectTopics.set(key, {
+                key,
+                id:topic.id,
+                canonical:{ subjectId:topic.subjectId, parentId:topic.parentId || null, name:topic.name, order:Number(topic.order) },
+                original:topic
+            });
+        });
+        localProjectTopics.forEach(topic => {
+            const seen = new Set([topic.id]);
+            let parentId = topic.canonical.parentId;
+            while(parentId){
+                if(seen.has(parentId)) throw new SyncConflictError("Project topics contain a parent cycle; no data was changed.");
+                seen.add(parentId);
+                parentId = localProjectTopics.get(parentId)?.canonical.parentId || null;
+            }
+        });
+        validateTopicSiblingOrder(localProjectTopics, "Local");
+        return {
+            subjects:localSubjects,
+            tasks:localTasks,
+            settings,
+            projectSubjects:localProjectSubjects,
+            projectTopics:localProjectTopics
+        };
     }
 
     function readLocalData(){
@@ -212,10 +287,16 @@
         const localTasks = Array.isArray(tasks) ? tasks : [];
         verifyStoredRows("ironMindSubjects", localSubjects, "task subjects");
         verifyStoredRows("ironMindTasks", localTasks, "tasks");
+        const localProjectSubjects = Array.isArray(projectSubjectRecords) ? projectSubjectRecords : [];
+        const localProjectTopics = Array.isArray(projectTopicRecords) ? projectTopicRecords : [];
+        verifyStoredRows("ironMindProjectSubjects", localProjectSubjects, "Project subjects");
+        verifyStoredRows("ironMindProjectTopics", localProjectTopics, "Project topics");
         return makeLocalData(
             localSubjects,
             localTasks,
-            parseStoredSettings()
+            parseStoredSettings(),
+            localProjectSubjects,
+            localProjectTopics
         );
     }
 
@@ -240,13 +321,22 @@
     async function readAllRows(client, table, columns, orderColumn, userId){
         const pageSize = 500;
         const rows = [];
+        const tableLabels = {
+            task_subjects:"task subjects",
+            tasks:"tasks",
+            project_subjects:"Project subjects",
+            project_topics:"Project topics"
+        };
+        const label = tableLabels[table] || "records";
         for(let offset = 0; ; ){
-            const result = await client.from(table)
+            let query = client.from(table)
                 .select(columns)
-                .eq("user_id", userId)
-                .order(orderColumn, { ascending:true })
-                .range(offset, offset + pageSize - 1);
-            const page = checkedResult(result, `Cloud ${table === "tasks" ? "tasks" : "task subjects"} could not be read.`) || [];
+                .eq("user_id", userId);
+            (Array.isArray(orderColumn) ? orderColumn : [orderColumn]).forEach(column => {
+                query = query.order(column, { ascending:true });
+            });
+            const result = await query.range(offset, offset + pageSize - 1);
+            const page = checkedResult(result, `Cloud ${label} could not be read.`) || [];
             if(!Array.isArray(page)) throw new SyncConflictError("The cloud returned an unexpected page of records.");
             if(page.length === 0) return rows;
             rows.push(...page);
@@ -255,16 +345,19 @@
     }
 
     async function readCloudData(client, userId){
-        const [subjectRows, taskRows, settingsResult] = await Promise.all([
+        const [subjectRows, taskRows, settingsResult, projectSubjectRows, projectTopicRows] = await Promise.all([
             readAllRows(client, "task_subjects", "id,user_id,name,priority,revision", "id", userId),
             readAllRows(client, "tasks", "id,user_id,subject_id,legacy_id,topic,source,task_date,status,remarks,revision", "id", userId),
             client.from("user_settings")
                 .select("user_id,settings,revision")
                 .eq("user_id", userId)
-                .limit(2)
+                .limit(2),
+            readAllRows(client, "project_subjects", "id,user_id,name,priority,revision,created_at", ["created_at", "id"], userId),
+            readAllRows(client, "project_topics", "id,user_id,subject_id,parent_id,name,sort_order,revision", "id", userId)
         ]);
         const settingsRows = checkedResult(settingsResult, "Cloud settings could not be read.") || [];
-        if(!Array.isArray(subjectRows) || !Array.isArray(taskRows) || !Array.isArray(settingsRows) || settingsRows.length > 1){
+        if(!Array.isArray(subjectRows) || !Array.isArray(taskRows) || !Array.isArray(settingsRows) || settingsRows.length > 1 ||
+            !Array.isArray(projectSubjectRows) || !Array.isArray(projectTopicRows)){
             throw new SyncConflictError("The cloud returned an unexpected data shape; no local data was changed.");
         }
 
@@ -313,7 +406,62 @@
         if(settings !== null && (!settings || typeof settings !== "object" || Array.isArray(settings))){
             throw new SyncConflictError("Cloud settings have an unexpected format.");
         }
-        return { subjects:cloudSubjects, tasks:cloudTasks, settings, settingsRevision:settingsRow ? Number(settingsRow.revision) : null };
+
+        const cloudProjectSubjects = new Map();
+        projectSubjectRows.forEach(subject => {
+            if(subject.user_id !== userId || !isUuid(subject.id) || typeof subject.name !== "string" || !subject.name.trim()){
+                throw new SyncConflictError("Cloud Project subject ownership or shape could not be verified.");
+            }
+            if(cloudProjectSubjects.has(subject.id)) throw new SyncConflictError("Cloud Project subjects contain duplicate IDs.");
+            cloudProjectSubjects.set(subject.id, {
+                key:subject.id,
+                id:subject.id,
+                revision:Number(subject.revision),
+                createdAt:subject.created_at,
+                canonical:{ name:subject.name, priority:String(subject.priority || "high") }
+            });
+        });
+        const cloudProjectTopics = new Map();
+        const topicNames = new Set();
+        projectTopicRows.forEach(topic => {
+            if(topic.user_id !== userId || !isUuid(topic.id) || !isUuid(topic.subject_id) ||
+                (topic.parent_id !== null && !isUuid(topic.parent_id)) || typeof topic.name !== "string" || !topic.name.trim() ||
+                !Number.isInteger(Number(topic.sort_order)) || Number(topic.sort_order) < 0){
+                throw new SyncConflictError("Cloud Project topic ownership or shape could not be verified.");
+            }
+            if(cloudProjectTopics.has(topic.id)) throw new SyncConflictError("Cloud Project topics contain duplicate IDs.");
+            if(!cloudProjectSubjects.has(topic.subject_id)) throw new SyncConflictError("A cloud Project topic refers to a missing subject.");
+            if(topic.parent_id && !projectTopicRows.some(parent => parent.id === topic.parent_id && parent.subject_id === topic.subject_id)){
+                throw new SyncConflictError("A cloud Project subtopic refers to a missing or different-subject parent.");
+            }
+            const nameKey = JSON.stringify([topic.subject_id, topic.parent_id, normalizeSubjectName(topic.name)]);
+            if(topicNames.has(nameKey)) throw new SyncConflictError("Cloud Project topics contain duplicate sibling names.");
+            topicNames.add(nameKey);
+            cloudProjectTopics.set(topic.id, {
+                key:topic.id,
+                id:topic.id,
+                revision:Number(topic.revision),
+                canonical:{ subjectId:topic.subject_id, parentId:topic.parent_id, name:topic.name, order:Number(topic.sort_order) }
+            });
+        });
+        cloudProjectTopics.forEach(topic => {
+            const seen = new Set([topic.id]);
+            let parentId = topic.canonical.parentId;
+            while(parentId){
+                if(seen.has(parentId)) throw new SyncConflictError("Cloud Project topics contain a parent cycle.");
+                seen.add(parentId);
+                parentId = cloudProjectTopics.get(parentId)?.canonical.parentId || null;
+            }
+        });
+        validateTopicSiblingOrder(cloudProjectTopics, "Cloud");
+        return {
+            subjects:cloudSubjects,
+            tasks:cloudTasks,
+            settings,
+            settingsRevision:settingsRow ? Number(settingsRow.revision) : null,
+            projectSubjects:cloudProjectSubjects,
+            projectTopics:cloudProjectTopics
+        };
     }
 
     async function signatures(map){
@@ -327,7 +475,11 @@
     }
 
     function mapHasRecords(data){
-        return data.subjects.size > 0 || data.tasks.size > 0 || data.settings !== null;
+        return data.subjects.size > 0 || data.tasks.size > 0 || data.settings !== null || mapHasProjectRecords(data);
+    }
+
+    function mapHasProjectRecords(data){
+        return data.projectSubjects.size > 0 || data.projectTopics.size > 0;
     }
 
     async function mapsEqual(left, right){
@@ -338,13 +490,15 @@
     }
 
     async function sameData(local, cloud){
-        const [subjectsMatch, tasksMatch, localSettings, cloudSettings] = await Promise.all([
+        const [subjectsMatch, tasksMatch, localSettings, cloudSettings, projectSubjectsMatch, projectTopicsMatch] = await Promise.all([
             mapsEqual(local.subjects, cloud.subjects),
             mapsEqual(local.tasks, cloud.tasks),
             settingsSignature(local.settings),
-            settingsSignature(cloud.settings)
+            settingsSignature(cloud.settings),
+            mapsEqual(local.projectSubjects, cloud.projectSubjects),
+            mapsEqual(local.projectTopics, cloud.projectTopics)
         ]);
-        return subjectsMatch && tasksMatch && localSettings === cloudSettings;
+        return subjectsMatch && tasksMatch && localSettings === cloudSettings && projectSubjectsMatch && projectTopicsMatch;
     }
 
     async function cloudIsMatchingSubset(local, cloud){
@@ -359,13 +513,78 @@
         if(cloud.settings !== null){
             if(local.settings === null || await settingsSignature(local.settings) !== await settingsSignature(cloud.settings)) return false;
         }
+        if(!await projectMapsSubset(cloud.projectSubjects, local.projectSubjects) ||
+            !await projectMapsSubset(cloud.projectTopics, local.projectTopics)) return false;
         return true;
+    }
+
+    async function projectMapsSubset(subset, superset){
+        for(const [key, row] of subset){
+            const matching = superset.get(key);
+            if(!matching || await signature(matching.canonical) !== await signature(row.canonical)) return false;
+        }
+        return true;
+    }
+
+    async function sameProjectData(left, right){
+        const [subjectsMatch, topicsMatch] = await Promise.all([
+            mapsEqual(left.projectSubjects, right.projectSubjects),
+            mapsEqual(left.projectTopics, right.projectTopics)
+        ]);
+        return subjectsMatch && topicsMatch;
+    }
+
+    function projectTopicOrderSignatures(topics){
+        const groups = new Map();
+        topics.forEach(topic => {
+            const key = JSON.stringify([topic.canonical.subjectId, topic.canonical.parentId]);
+            if(!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(topic);
+        });
+        const result = {};
+        groups.forEach((rows, key) => {
+            rows.sort((left, right) => left.canonical.order - right.canonical.order || left.id.localeCompare(right.id));
+            result[key] = rows.map(row => row.id);
+        });
+        return result;
+    }
+
+    function validateProjectNameCollisions(local, cloud){
+        const cloudSubjectNames = new Map([...cloud.projectSubjects.values()].map(row => [normalizeSubjectName(row.canonical.name), row.id]));
+        local.projectSubjects.forEach(row => {
+            const existingId = cloudSubjectNames.get(normalizeSubjectName(row.canonical.name));
+            if(existingId && existingId !== row.id){
+                throw new SyncConflictError("A Project subject with the same name has a different ID on each side. Review the two records before syncing.");
+            }
+        });
+
+        const siblingKey = row => JSON.stringify([
+            row.canonical.subjectId,
+            row.canonical.parentId,
+            normalizeSubjectName(row.canonical.name)
+        ]);
+        const cloudTopicNames = new Map([...cloud.projectTopics.values()].map(row => [siblingKey(row), row.id]));
+        local.projectTopics.forEach(row => {
+            const existingId = cloudTopicNames.get(siblingKey(row));
+            if(existingId && existingId !== row.id){
+                throw new SyncConflictError("A Project topic with the same parent and name has a different ID on each side. Review the two records before syncing.");
+            }
+        });
     }
 
     async function datasetFingerprint(local){
         const subjectsList = [...local.subjects].sort(([a], [b]) => a.localeCompare(b)).map(([key, row]) => [key, row.canonical]);
         const tasksList = [...local.tasks].sort(([a], [b]) => a.localeCompare(b)).map(([key, row]) => [key, row.canonical]);
-        return signature({ subjects:subjectsList, tasks:tasksList, settings:local.settings });
+        const projectSubjectsList = [...local.projectSubjects].sort(([a], [b]) => a.localeCompare(b)).map(([key, row]) => [key, row.canonical]);
+        const projectTopicsList = [...local.projectTopics].sort(([a], [b]) => a.localeCompare(b)).map(([key, row]) => [key, row.canonical]);
+        return signature({
+            subjects:subjectsList,
+            tasks:tasksList,
+            settings:local.settings,
+            projectSubjects:projectSubjectsList,
+            projectSubjectOrder:[...local.projectSubjects.keys()],
+            projectTopics:projectTopicsList
+        });
     }
 
     async function assertLocalUnchanged(expectedFingerprint){
@@ -375,34 +594,65 @@
     }
 
     function countForPreview(local, cloud){
-        let subjectsToUpload = 0, tasksToUpload = 0, settingsToUpload = 0;
+        let subjectsToUpload = 0, tasksToUpload = 0, settingsToUpload = 0, projectSubjectsToUpload = 0, projectTopicsToUpload = 0;
         for(const key of local.subjects.keys()) if(!cloud.subjects.has(key)) subjectsToUpload++;
         for(const key of local.tasks.keys()) if(!cloud.tasks.has(key)) tasksToUpload++;
         if(local.settings !== null && cloud.settings === null) settingsToUpload = 1;
-        return { subjectsToUpload, tasksToUpload, settingsToUpload };
+        for(const key of local.projectSubjects.keys()) if(!cloud.projectSubjects.has(key)) projectSubjectsToUpload++;
+        for(const key of local.projectTopics.keys()) if(!cloud.projectTopics.has(key)) projectTopicsToUpload++;
+        return { subjectsToUpload, tasksToUpload, settingsToUpload, projectSubjectsToUpload, projectTopicsToUpload };
     }
 
-    function showFirstUploadPreview(local, cloud, userId){
+    function projectTopicPreviewPath(local, topicRow){
+        const names = [];
+        const seen = new Set();
+        let current = topicRow;
+        while(current && !seen.has(current.id)){
+            seen.add(current.id);
+            names.unshift(current.canonical.name);
+            current = current.canonical.parentId ? local.projectTopics.get(current.canonical.parentId) : null;
+        }
+        const subject = local.projectSubjects.get(topicRow.canonical.subjectId);
+        return [subject?.canonical.name || topicRow.canonical.subjectId, ...names].join(" / ");
+    }
+
+    function showFirstUploadPreview(local, cloud, userId, scope = "all"){
         const counts = countForPreview(local, cloud);
-        const alreadyPresent = local.subjects.size + local.tasks.size + (local.settings === null ? 0 : 1) -
-            counts.subjectsToUpload - counts.tasksToUpload - counts.settingsToUpload;
+        const alreadyPresent = scope === "projects"
+            ? local.projectSubjects.size + local.projectTopics.size - counts.projectSubjectsToUpload - counts.projectTopicsToUpload
+            : local.subjects.size + local.tasks.size + (local.settings === null ? 0 : 1) -
+                counts.subjectsToUpload - counts.tasksToUpload - counts.settingsToUpload +
+                local.projectSubjects.size + local.projectTopics.size - counts.projectSubjectsToUpload - counts.projectTopicsToUpload;
         const email = workspace.session?.user?.email || "this verified account";
+        const uploadSummary = scope === "projects"
+            ? `${counts.projectSubjectsToUpload} Project subjects and ${counts.projectTopicsToUpload} topics/subtopics will be uploaded.`
+            : `${counts.subjectsToUpload} task subjects, ${counts.tasksToUpload} tasks, ${counts.projectSubjectsToUpload} Project subjects, ${counts.projectTopicsToUpload} topics/subtopics, and ${counts.settingsToUpload ? "your settings" : "no settings"} will be uploaded.`;
         previewDetails.textContent =
-            `Review first upload to ${email} (${userId}): ${counts.subjectsToUpload} task subjects, ${counts.tasksToUpload} tasks, and ${counts.settingsToUpload ? "your settings" : "no settings"} will be uploaded. ` +
+            `Review first upload to ${email} (${userId}): ${uploadSummary} ` +
             `${alreadyPresent} matching record(s) are already in the cloud and will not be replaced. Local data stays in this account workspace; nothing will be deleted.`;
         previewRecords.replaceChildren();
         const previewItems = [];
-        for(const [key, row] of local.subjects){
-            if(!cloud.subjects.has(key)) previewItems.push(`Subject: ${row.canonical.name} (${row.canonical.priority} priority)`);
-        }
-        for(const [key, row] of local.tasks){
-            if(!cloud.tasks.has(key)){
-                const date = row.canonical.task_date ? fromIsoDate(row.canonical.task_date) : "no date";
-                previewItems.push(`Task ${key}: subject=${row.canonical.subject}; topic=${row.canonical.topic}; source=${row.canonical.source}; date=${date}; status=${row.canonical.status}; remarks=${row.canonical.remarks}`);
+        if(scope !== "projects"){
+            for(const [key, row] of local.subjects){
+                if(!cloud.subjects.has(key)) previewItems.push(`Subject: ${row.canonical.name} (${row.canonical.priority} priority)`);
+            }
+            for(const [key, row] of local.tasks){
+                if(!cloud.tasks.has(key)){
+                    const date = row.canonical.task_date ? fromIsoDate(row.canonical.task_date) : "no date";
+                    previewItems.push(`Task ${key}: subject=${row.canonical.subject}; topic=${row.canonical.topic}; source=${row.canonical.source}; date=${date}; status=${row.canonical.status}; remarks=${row.canonical.remarks}`);
+                }
+            }
+            if(counts.settingsToUpload){
+                previewItems.push(`Settings: ${JSON.stringify(stableValue(local.settings))}`);
             }
         }
-        if(counts.settingsToUpload){
-            previewItems.push(`Settings: ${JSON.stringify(stableValue(local.settings))}`);
+        for(const [key, row] of local.projectSubjects){
+            if(!cloud.projectSubjects.has(key)) previewItems.push(`Project subject ${key}: ${row.canonical.name} (${row.canonical.priority} priority)`);
+        }
+        for(const [key, row] of local.projectTopics){
+            if(!cloud.projectTopics.has(key)){
+                previewItems.push(`Project topic ${key}: ${projectTopicPreviewPath(local, row)} (sibling order ${row.canonical.order})`);
+            }
         }
         const visibleItems = previewItems.slice(0, 20);
         visibleItems.forEach(label => {
@@ -415,10 +665,10 @@
             remainder.textContent = `…and ${previewItems.length - visibleItems.length} more item(s).`;
             previewRecords.appendChild(remainder);
         }
-        const preview = { userId, fingerprint:null };
+        const preview = { userId, scope, fingerprint:null };
         pendingUpload = preview;
         previewPanel.classList.remove("hidden");
-        setStatus("idle", "Not synced. Review the first-upload preview before any local data is uploaded.");
+        setStatus("idle", `Not synced. Review the ${scope === "projects" ? "Project data" : "first-upload"} preview before any local data is uploaded.`);
         updateControls();
         datasetFingerprint(local).then(fingerprint => {
             if(pendingUpload === preview){
@@ -448,6 +698,17 @@
         }
     }
 
+    function hasProjectBaseline(state){
+        const keys = ["projectSubjects", "projectTopics", "projectTopicOrders"];
+        const baseline = state?.baseline || {};
+        const present = keys.filter(key => Object.prototype.hasOwnProperty.call(baseline, key));
+        if(!present.length) return false;
+        if(present.length !== keys.length || keys.some(key => !baseline[key] || typeof baseline[key] !== "object" || Array.isArray(baseline[key]))){
+            throw new SyncConflictError("The Project sync checkpoint is incomplete or unreadable. No Project data was changed.");
+        }
+        return true;
+    }
+
     async function makeState(userId, cloud){
         return {
             version:1,
@@ -456,7 +717,24 @@
             baseline:{
                 subjects:await signatures(cloud.subjects),
                 tasks:await signatures(cloud.tasks),
-                settings:await settingsSignature(cloud.settings)
+                settings:await settingsSignature(cloud.settings),
+                projectSubjects:await signatures(cloud.projectSubjects),
+                projectTopics:await signatures(cloud.projectTopics),
+                projectTopicOrders:projectTopicOrderSignatures(cloud.projectTopics)
+            }
+        };
+    }
+
+    async function makeProjectState(userId, cloud, previousState){
+        return {
+            version:1,
+            userId,
+            syncedAt:new Date().toISOString(),
+            baseline:{
+                ...previousState.baseline,
+                projectSubjects:await signatures(cloud.projectSubjects),
+                projectTopics:await signatures(cloud.projectTopics),
+                projectTopicOrders:projectTopicOrderSignatures(cloud.projectTopics)
             }
         };
     }
@@ -518,6 +796,50 @@
         return { push:localChanged && !cloudChanged, pull:cloudChanged && !localChanged };
     }
 
+    async function classifyProjectTopics(local, cloud, baseline, baselineOrders){
+        const plan = await classifyRecords("Project topic", local.projectTopics, cloud.projectTopics, baseline);
+        const localOrders = projectTopicOrderSignatures(local.projectTopics);
+        const cloudOrders = projectTopicOrderSignatures(cloud.projectTopics);
+        const baseOrders = baselineOrders || {};
+        const groups = new Set([...Object.keys(baseOrders), ...Object.keys(localOrders), ...Object.keys(cloudOrders)]);
+        groups.forEach(group => {
+            if(!Object.prototype.hasOwnProperty.call(baseOrders, group)) return;
+            const base = JSON.stringify(baseOrders[group] || []);
+            const localOrder = JSON.stringify(localOrders[group] || []);
+            const cloudOrder = JSON.stringify(cloudOrders[group] || []);
+            if(localOrder !== base && cloudOrder !== base && localOrder !== cloudOrder){
+                throw new SyncConflictError("Project topic order changed differently on this device and in the cloud. Review the sibling order before syncing.");
+            }
+        });
+        return plan;
+    }
+
+    async function sameProjectMaps(left, right){
+        return await projectMapsSubset(left.projectSubjects, right.projectSubjects) &&
+            await projectMapsSubset(left.projectTopics, right.projectTopics);
+    }
+
+    async function projectCloudIsSubset(local, cloud){
+        return sameProjectMaps(cloud, local);
+    }
+
+    async function projectLocalIsSubset(local, cloud){
+        return sameProjectMaps(local, cloud);
+    }
+
+    function makeProjectPullPlan(local, cloud){
+        return {
+            projectSubjects:{
+                push:new Set(),
+                pull:new Set([...cloud.projectSubjects.keys()].filter(key => !local.projectSubjects.has(key)))
+            },
+            projectTopics:{
+                push:new Set(),
+                pull:new Set([...cloud.projectTopics.keys()].filter(key => !local.projectTopics.has(key)))
+            }
+        };
+    }
+
     function applyPulls(local, cloud, plan){
         const subjectRows = [...local.subjects.values()].map(row => row.original);
         for(const key of plan.subjects.pull){
@@ -546,13 +868,65 @@
             else taskRows.push({ id:/^\d+$/.test(key) && Number.isSafeInteger(Number(key)) ? Number(key) : key, ...taskPatch });
         }
         const settings = plan.settings.pull ? cloud.settings : local.settings;
+        const projects = applyProjectPulls(local, cloud, plan);
         return {
             subjects:subjectRows,
             tasks:taskRows,
             settings,
             changedSubjects:plan.subjects.pull.size > 0,
             changedTasks:plan.tasks.pull.size > 0,
-            changedSettings:plan.settings.pull
+            changedSettings:plan.settings.pull,
+            ...projects
+        };
+    }
+
+    function orderProjectSubjects(rows, cloudSubjects){
+        // The schema has no subject sort column, so use its stable creation order and
+        // leave any not-yet-uploaded local subjects in their existing relative order.
+        const localById = new Map(rows.map(subject => [subject.id, subject]));
+        const ordered = [];
+        cloudSubjects.forEach((record, id) => {
+            if(localById.has(id)) ordered.push(localById.get(id));
+        });
+        rows.forEach(subject => {
+            if(!cloudSubjects.has(subject.id)) ordered.push(subject);
+        });
+        return ordered;
+    }
+
+    function projectSubjectOrderChanged(before, after){
+        return before.some((subject, index) => subject.id !== after[index]?.id);
+    }
+
+    function applyProjectPulls(local, cloud, plan){
+        const projectSubjectRows = [...local.projectSubjects.values()].map(row => row.original);
+        for(const key of plan.projectSubjects.pull){
+            const remote = cloud.projectSubjects.get(key);
+            const index = projectSubjectRows.findIndex(subject => subject.id === key);
+            const patch = { name:remote.canonical.name, priority:remote.canonical.priority };
+            if(index >= 0) projectSubjectRows[index] = { ...projectSubjectRows[index], ...patch };
+            else projectSubjectRows.push({ id:remote.id, ...patch });
+        }
+
+        const projectTopicRows = [...local.projectTopics.values()].map(row => row.original);
+        for(const key of plan.projectTopics.pull){
+            const remote = cloud.projectTopics.get(key);
+            const index = projectTopicRows.findIndex(topic => topic.id === key);
+            const patch = {
+                subjectId:remote.canonical.subjectId,
+                parentId:remote.canonical.parentId,
+                name:remote.canonical.name,
+                order:remote.canonical.order
+            };
+            if(index >= 0) projectTopicRows[index] = { ...projectTopicRows[index], ...patch };
+            else projectTopicRows.push({ id:remote.id, ...patch });
+        }
+        const orderedSubjects = orderProjectSubjects(projectSubjectRows, cloud.projectSubjects);
+        return {
+            projectSubjects:orderedSubjects,
+            projectTopics:projectTopicRows,
+            changedProjectSubjects:plan.projectSubjects.pull.size > 0 || projectSubjectOrderChanged(projectSubjectRows, orderedSubjects),
+            changedProjectTopics:plan.projectTopics.pull.size > 0
         };
     }
 
@@ -561,7 +935,111 @@
         return result.data;
     }
 
+    function orderedProjectTopicKeys(keys, topics){
+        const depthCache = new Map();
+        function depth(key, visiting = new Set()){
+            if(depthCache.has(key)) return depthCache.get(key);
+            const row = topics.get(key);
+            if(!row || !row.canonical.parentId) return 0;
+            if(visiting.has(key)) throw new SyncConflictError("Project topics contain a parent cycle; no records were uploaded.");
+            visiting.add(key);
+            const result = 1 + depth(row.canonical.parentId, visiting);
+            visiting.delete(key);
+            depthCache.set(key, result);
+            return result;
+        }
+        return [...keys].sort((leftKey, rightKey) => {
+            const left = topics.get(leftKey), right = topics.get(rightKey);
+            return depth(leftKey) - depth(rightKey) ||
+                left.canonical.order - right.canonical.order || left.id.localeCompare(right.id);
+        });
+    }
+
     async function pushChanges(client, userId, generation, finalLocal, cloud, plan, operation){
+        validateProjectNameCollisions(finalLocal, cloud);
+        for(const key of plan.projectSubjects.push){
+            assertOperationIdentity(userId, generation);
+            const localRecord = finalLocal.projectSubjects.get(key);
+            const existing = cloud.projectSubjects.get(key);
+            if(existing){
+                operation.writesStarted = true;
+                const result = await client.from("project_subjects")
+                    .update({ name:localRecord.canonical.name, priority:localRecord.canonical.priority })
+                    .eq("user_id", userId)
+                    .eq("id", existing.id)
+                    .eq("revision", existing.revision)
+                    .select("id,user_id,name,priority,revision,created_at")
+                    .maybeSingle();
+                const updated = ensureCloudSuccess(result, "A Project subject could not be synchronized.");
+                if(!updated) throw new SyncConflictError("A Project subject changed in the cloud during sync. No further writes were sent.");
+                existing.revision = Number(updated.revision);
+                existing.canonical = { ...localRecord.canonical };
+            }else{
+                operation.writesStarted = true;
+                const result = await client.from("project_subjects")
+                    .insert({ id:localRecord.id, user_id:userId, name:localRecord.canonical.name, priority:localRecord.canonical.priority })
+                    .select("id,user_id,name,priority,revision,created_at")
+                    .single();
+                const inserted = ensureCloudSuccess(result, "A Project subject could not be synchronized.");
+                cloud.projectSubjects.set(key, {
+                    key,
+                    id:inserted.id,
+                    revision:Number(inserted.revision),
+                    createdAt:inserted.created_at,
+                    canonical:{ name:inserted.name, priority:String(inserted.priority || "high") }
+                });
+            }
+        }
+
+        for(const key of orderedProjectTopicKeys(plan.projectTopics.push, finalLocal.projectTopics)){
+            assertOperationIdentity(userId, generation);
+            const localRecord = finalLocal.projectTopics.get(key);
+            const existing = cloud.projectTopics.get(key);
+            if(!cloud.projectSubjects.has(localRecord.canonical.subjectId) ||
+                (localRecord.canonical.parentId && !cloud.projectTopics.has(localRecord.canonical.parentId))){
+                throw new SyncConflictError("A Project topic’s subject or parent is not available in the cloud. No topic was uploaded.");
+            }
+            const record = {
+                user_id:userId,
+                subject_id:localRecord.canonical.subjectId,
+                parent_id:localRecord.canonical.parentId,
+                name:localRecord.canonical.name,
+                sort_order:localRecord.canonical.order
+            };
+            if(existing){
+                operation.writesStarted = true;
+                const result = await client.from("project_topics")
+                    .update(record)
+                    .eq("user_id", userId)
+                    .eq("id", existing.id)
+                    .eq("revision", existing.revision)
+                    .select("id,user_id,subject_id,parent_id,name,sort_order,revision")
+                    .maybeSingle();
+                const updated = ensureCloudSuccess(result, "A Project topic could not be synchronized.");
+                if(!updated) throw new SyncConflictError("A Project topic changed in the cloud during sync. No further writes were sent.");
+                existing.revision = Number(updated.revision);
+                existing.canonical = { ...localRecord.canonical };
+            }else{
+                operation.writesStarted = true;
+                const result = await client.from("project_topics")
+                    .insert({ id:localRecord.id, ...record })
+                    .select("id,user_id,subject_id,parent_id,name,sort_order,revision")
+                    .single();
+                const inserted = ensureCloudSuccess(result, "A Project topic could not be synchronized.");
+                cloud.projectTopics.set(key, {
+                    key,
+                    id:inserted.id,
+                    revision:Number(inserted.revision),
+                    canonical:{
+                        subjectId:inserted.subject_id,
+                        parentId:inserted.parent_id,
+                        name:inserted.name,
+                        order:Number(inserted.sort_order)
+                    }
+                });
+            }
+        }
+
         for(const key of plan.subjects.push){
             assertOperationIdentity(userId, generation);
             const localRecord = finalLocal.subjects.get(key);
@@ -666,6 +1144,8 @@
         if(local.changedSubjects) updates.push(["ironMindSubjects", JSON.stringify(local.subjects)]);
         if(local.changedTasks) updates.push(["ironMindTasks", JSON.stringify(local.tasks)]);
         if(local.changedSettings) updates.push(["ironMindSettings", JSON.stringify(local.settings)]);
+        if(local.changedProjectSubjects) updates.push(["ironMindProjectSubjects", JSON.stringify(local.projectSubjects)]);
+        if(local.changedProjectTopics) updates.push(["ironMindProjectTopics", JSON.stringify(local.projectTopics)]);
         const snapshots = updates.map(([key]) => [key, storage.getItem(key)]);
         try{
             updates.forEach(([key, value]) => storage.setItem(key, value));
@@ -682,11 +1162,14 @@
         if(local.changedSubjects) subjects = local.subjects;
         if(local.changedTasks) tasks = local.tasks;
         if(local.changedSettings) appSettings = { ...defaultSettings, ...local.settings };
+        if(local.changedProjectSubjects) projectSubjectRecords = local.projectSubjects;
+        if(local.changedProjectTopics) projectTopicRecords = local.projectTopics;
         refreshApplicationAfterPull(local);
     }
 
     function refreshApplicationAfterPull(local){
-        if(!local.changedSubjects && !local.changedTasks && !local.changedSettings) return;
+        if(!local.changedSubjects && !local.changedTasks && !local.changedSettings &&
+            !local.changedProjectSubjects && !local.changedProjectTopics) return;
         try{
             if(local.changedSettings){
                 if(typeof syncSettingsUI === "function") syncSettingsUI();
@@ -701,13 +1184,35 @@
                     if(typeof updateSubjectStats === "function") updateSubjectStats();
                 }
             }
+            if(local.changedProjectSubjects || local.changedProjectTopics) refreshProjectAfterPull();
         }catch(error){ /* Local records are already saved; the next app render will read them. */ }
     }
 
-    async function persistBaselineOnly(userId, cloud){
-        const state = await makeState(userId, cloud);
-        workspace.storage.setItem(SYNC_STATE_KEY, JSON.stringify(state));
-        setStatus("synced", `Synced at ${new Date(state.syncedAt).toLocaleString()}.`);
+    function refreshProjectAfterPull(){
+        const home = document.getElementById("projectHomeView");
+        const projectWorkspace = document.getElementById("projectSubjectWorkspace");
+        const homeWasVisible = Boolean(home && !home.classList.contains("hidden"));
+        const workspaceWasVisible = Boolean(projectWorkspace && !projectWorkspace.classList.contains("hidden"));
+        if(typeof renderProjectHome === "function") renderProjectHome();
+        if(home) home.classList.toggle("hidden", !homeWasVisible);
+        if(projectWorkspace) projectWorkspace.classList.toggle("hidden", !workspaceWasVisible);
+        if(!workspaceWasVisible) return;
+
+        try{
+            const subject = typeof projectState !== "undefined"
+                ? projectSubjectRecords.find(item => item.id === projectState.subjectId)
+                : null;
+            if(!subject) return;
+            const title = document.getElementById("projectWorkspaceSubjectTitle");
+            const sidebarTitle = document.getElementById("projectSidebarSubjectTitle");
+            if(title) title.textContent = subject.name;
+            if(sidebarTitle) sidebarTitle.textContent = subject.name;
+            if(projectState.activeNoteId){
+                if(typeof renderProjectTree === "function") renderProjectTree();
+            }else if(typeof renderProjectWorkspace === "function"){
+                renderProjectWorkspace();
+            }
+        }catch(error){ /* Keep the currently open note or Project view intact if it cannot be refreshed. */ }
     }
 
     async function localMatchesCloud(local, cloud){
@@ -717,29 +1222,39 @@
     async function processFirstSync(client, userId, generation, local, localFingerprint, cloud){
         assertOperationIdentity(userId, generation);
         await assertLocalUnchanged(localFingerprint);
+        validateProjectNameCollisions(local, cloud);
         const localHas = mapHasRecords(local), cloudHas = mapHasRecords(cloud);
         if(!localHas && !cloudHas){
             pendingUpload = null;
             previewPanel.classList.add("hidden");
-            setStatus("idle", "Not synced. There are no tasks, subjects, or saved settings to sync yet.");
+            setStatus("idle", "Not synced. There are no tasks, task subjects, Project subjects/topics, or saved settings to sync yet.");
             return;
         }
         if(!localHas && cloudHas){
             const plan = {
                 subjects:{ push:new Set(), pull:new Set(cloud.subjects.keys()) },
                 tasks:{ push:new Set(), pull:new Set(cloud.tasks.keys()) },
-                settings:{ push:false, pull:cloud.settings !== null }
+                settings:{ push:false, pull:cloud.settings !== null },
+                projectSubjects:{ push:new Set(), pull:new Set(cloud.projectSubjects.keys()) },
+                projectTopics:{ push:new Set(), pull:new Set(cloud.projectTopics.keys()) }
             };
             const pulled = applyPulls(local, cloud, plan);
-            const verifiedLocal = makeLocalData(pulled.subjects, pulled.tasks, pulled.settings);
+            const verifiedLocal = makeLocalData(pulled.subjects, pulled.tasks, pulled.settings, pulled.projectSubjects, pulled.projectTopics);
             if(!await localMatchesCloud(verifiedLocal, cloud)) throw new SyncConflictError("Cloud data could not be verified before it was copied locally.");
             const state = await makeState(userId, cloud);
             assertOperationIdentity(userId, generation);
             await assertLocalUnchanged(localFingerprint);
-            await persistResult({ ...pulled, changedSubjects:cloud.subjects.size > 0, changedTasks:cloud.tasks.size > 0, changedSettings:cloud.settings !== null }, state);
+            await persistResult({
+                ...pulled,
+                changedSubjects:cloud.subjects.size > 0,
+                changedTasks:cloud.tasks.size > 0,
+                changedSettings:cloud.settings !== null,
+                changedProjectSubjects:cloud.projectSubjects.size > 0,
+                changedProjectTopics:cloud.projectTopics.size > 0
+            }, state);
             pendingUpload = null;
             previewPanel.classList.add("hidden");
-            setStatus("synced", `Downloaded cloud tasks and settings at ${new Date(state.syncedAt).toLocaleString()}.`);
+            setStatus("synced", `Downloaded cloud tasks, settings, and Project subjects/topics at ${new Date(state.syncedAt).toLocaleString()}.`);
             return;
         }
         if(localHas && cloudHas && await localMatchesCloud(local, cloud)){
@@ -747,14 +1262,76 @@
             previewPanel.classList.add("hidden");
             assertOperationIdentity(userId, generation);
             await assertLocalUnchanged(localFingerprint);
-            await persistBaselineOnly(userId, cloud);
+            const noPullPlan = {
+                subjects:{ push:new Set(), pull:new Set() },
+                tasks:{ push:new Set(), pull:new Set() },
+                settings:{ push:false, pull:false },
+                projectSubjects:{ push:new Set(), pull:new Set() },
+                projectTopics:{ push:new Set(), pull:new Set() }
+            };
+            const aligned = applyPulls(local, cloud, noPullPlan);
+            const state = await makeState(userId, cloud);
+            await persistResult(aligned, state);
+            setStatus("synced", `Synced at ${new Date(state.syncedAt).toLocaleString()}.`);
             return;
         }
         if(localHas && (!cloudHas || await cloudIsMatchingSubset(local, cloud))){
             showFirstUploadPreview(local, cloud, userId);
             return;
         }
-        throw new SyncConflictError("This account and this device both contain different task or settings data, and there is no prior sync checkpoint. No data was changed. Resolve or back up the two datasets before syncing.");
+        throw new SyncConflictError("This account and this device both contain different task, settings, or Project data, and there is no prior sync checkpoint. No data was changed. Resolve or back up the two datasets before syncing.");
+    }
+
+    async function processFirstProjectSync(client, userId, generation, local, localFingerprint, cloud, previousState){
+        assertOperationIdentity(userId, generation);
+        await assertLocalUnchanged(localFingerprint);
+        validateProjectNameCollisions(local, cloud);
+        const localHas = mapHasProjectRecords(local);
+        const cloudHas = mapHasProjectRecords(cloud);
+        if(!localHas && !cloudHas){
+            const nextState = await makeProjectState(userId, cloud, previousState);
+            assertOperationIdentity(userId, generation);
+            await assertLocalUnchanged(localFingerprint);
+            workspace.storage.setItem(SYNC_STATE_KEY, JSON.stringify(nextState));
+            setStatus("synced", "Project subjects and topics are ready to sync. No Project records were found yet.");
+            return;
+        }
+        if(await sameProjectData(local, cloud)){
+            const nextState = await makeProjectState(userId, cloud, previousState);
+            assertOperationIdentity(userId, generation);
+            await assertLocalUnchanged(localFingerprint);
+            const pulled = applyProjectPulls(local, cloud, makeProjectPullPlan(local, cloud));
+            await persistResult({
+                ...pulled,
+                changedProjectSubjects:pulled.changedProjectSubjects,
+                changedProjectTopics:false
+            }, nextState);
+            setStatus("synced", "Project subjects and topics are synced. No records needed to be copied.");
+            return;
+        }
+        if(await projectLocalIsSubset(local, cloud)){
+            const plan = makeProjectPullPlan(local, cloud);
+            const pulled = applyProjectPulls(local, cloud, plan);
+            const verifiedLocal = makeLocalData(
+                [...local.subjects.values()].map(row => row.original),
+                [...local.tasks.values()].map(row => row.original),
+                local.settings,
+                pulled.projectSubjects,
+                pulled.projectTopics
+            );
+            if(!await sameProjectData(verifiedLocal, cloud)) throw new SyncConflictError("Cloud Project data could not be verified before it was added locally.");
+            const nextState = await makeProjectState(userId, cloud, previousState);
+            assertOperationIdentity(userId, generation);
+            await assertLocalUnchanged(localFingerprint);
+            await persistResult({ ...pulled }, nextState);
+            setStatus("synced", "Downloaded cloud Project subjects and topics. Existing notes, resources, and local Project records were preserved.");
+            return;
+        }
+        if(await projectCloudIsSubset(local, cloud)){
+            showFirstUploadPreview(local, cloud, userId, "projects");
+            return;
+        }
+        throw new SyncConflictError("This device and the cloud contain different Project subjects or topics without a shared baseline. No Project data was changed; review both copies before syncing.");
     }
 
     async function confirmFirstUpload(){
@@ -765,6 +1342,7 @@
         setStatus("syncing", "Verifying the preview and uploading the confirmed records…");
         try{
             const { client, userId, generation } = await getVerifiedClient();
+            let projectPreviousState = null;
             if(userId !== pendingUpload.userId) throw new SyncConflictError("The signed-in account changed. Review the upload for the current account.");
             const local = readLocalData();
             if(await datasetFingerprint(local) !== pendingUpload.fingerprint){
@@ -781,42 +1359,75 @@
                 throw new SyncConflictError("Local data changed while checking the cloud. Run Sync now to review a fresh preview.");
             }
             const uploadLocal = latestLocal;
-            if(!await cloudIsMatchingSubset(uploadLocal, cloud)){
+            const projectOnlyPreview = pendingUpload.scope === "projects";
+            if(projectOnlyPreview){
+                const previousState = readState();
+                if(!previousState || previousState.userId !== userId || hasProjectBaseline(previousState)){
+                    pendingUpload = null;
+                    previewPanel.classList.add("hidden");
+                    throw new SyncConflictError("The Project sync checkpoint changed after the preview. Run Sync now to review the current state.");
+                }
+                projectPreviousState = previousState;
+                validateProjectNameCollisions(uploadLocal, cloud);
+            }
+            const cloudStillMatches = projectOnlyPreview
+                ? await projectCloudIsSubset(uploadLocal, cloud)
+                : await cloudIsMatchingSubset(uploadLocal, cloud);
+            if(!cloudStillMatches){
                 pendingUpload = null;
                 previewPanel.classList.add("hidden");
                 throw new SyncConflictError("Cloud data changed after the preview. Neither dataset was replaced; run Sync now to review the conflict.");
             }
             const counts = countForPreview(uploadLocal, cloud);
             const plan = {
-                subjects:{ push:new Set([...uploadLocal.subjects.keys()].filter(key => !cloud.subjects.has(key))), pull:new Set() },
-                tasks:{ push:new Set([...uploadLocal.tasks.keys()].filter(key => !cloud.tasks.has(key))), pull:new Set() },
-                settings:{ push:uploadLocal.settings !== null && cloud.settings === null, pull:false }
+                subjects:{ push:projectOnlyPreview ? new Set() : new Set([...uploadLocal.subjects.keys()].filter(key => !cloud.subjects.has(key))), pull:new Set() },
+                tasks:{ push:projectOnlyPreview ? new Set() : new Set([...uploadLocal.tasks.keys()].filter(key => !cloud.tasks.has(key))), pull:new Set() },
+                settings:{ push:!projectOnlyPreview && uploadLocal.settings !== null && cloud.settings === null, pull:false },
+                projectSubjects:{ push:new Set([...uploadLocal.projectSubjects.keys()].filter(key => !cloud.projectSubjects.has(key))), pull:new Set() },
+                projectTopics:{ push:new Set([...uploadLocal.projectTopics.keys()].filter(key => !cloud.projectTopics.has(key))), pull:new Set() }
             };
             const finalLocal = {
                 subjects:[...uploadLocal.subjects.values()].map(row => row.original),
                 tasks:[...uploadLocal.tasks.values()].map(row => row.original),
                 settings:uploadLocal.settings,
+                projectSubjects:[...uploadLocal.projectSubjects.values()].map(row => row.original),
+                projectTopics:[...uploadLocal.projectTopics.values()].map(row => row.original),
                 changedSubjects:false,
                 changedTasks:false,
-                changedSettings:false
+                changedSettings:false,
+                changedProjectSubjects:false,
+                changedProjectTopics:false
             };
             finalLocal.subjects = finalLocal.subjects.map(subject => ({ ...subject }));
             finalLocal.tasks = finalLocal.tasks.map(task => ({ ...task }));
-            const finalSnapshot = makeLocalData(finalLocal.subjects, finalLocal.tasks, finalLocal.settings);
+            finalLocal.projectSubjects = finalLocal.projectSubjects.map(subject => ({ ...subject }));
+            finalLocal.projectTopics = finalLocal.projectTopics.map(topic => ({ ...topic }));
+            const finalSnapshot = makeLocalData(finalLocal.subjects, finalLocal.tasks, finalLocal.settings, finalLocal.projectSubjects, finalLocal.projectTopics);
             await assertLocalUnchanged(pendingUpload.fingerprint);
             await pushChanges(client, userId, generation, finalSnapshot, cloud, plan, operation);
             assertOperationIdentity(userId, generation);
             const verifiedCloud = await readCloudData(client, userId);
             assertOperationIdentity(userId, generation);
             await assertLocalUnchanged(pendingUpload.fingerprint);
-            if(!await localMatchesCloud(finalSnapshot, verifiedCloud)){
+            const verified = projectOnlyPreview
+                ? await sameProjectData(finalSnapshot, verifiedCloud)
+                : await localMatchesCloud(finalSnapshot, verifiedCloud);
+            if(!verified){
                 throw new SyncConflictError("The uploaded data did not match the confirmed local snapshot. No local records were changed; review the cloud before retrying.");
             }
-            const state = await makeState(userId, verifiedCloud);
-            await workspace.storage.setItem(SYNC_STATE_KEY, JSON.stringify(state));
+            const orderedProjectSubjects = orderProjectSubjects(finalLocal.projectSubjects, verifiedCloud.projectSubjects);
+            finalLocal.changedProjectSubjects = projectSubjectOrderChanged(finalLocal.projectSubjects, orderedProjectSubjects);
+            finalLocal.projectSubjects = orderedProjectSubjects;
+            const state = projectOnlyPreview
+                ? await makeProjectState(userId, verifiedCloud, projectPreviousState)
+                : await makeState(userId, verifiedCloud);
+            await persistResult(finalLocal, state);
             pendingUpload = null;
             previewPanel.classList.add("hidden");
-            setStatus("synced", `Synced ${counts.subjectsToUpload} subject(s), ${counts.tasksToUpload} task(s), and ${counts.settingsToUpload ? "settings" : "no settings"} at ${new Date(state.syncedAt).toLocaleString()}.`);
+            const summary = projectOnlyPreview
+                ? `${counts.projectSubjectsToUpload} Project subject(s) and ${counts.projectTopicsToUpload} topic(s)/subtopic(s)`
+                : `${counts.subjectsToUpload} task subject(s), ${counts.tasksToUpload} task(s), ${counts.projectSubjectsToUpload} Project subject(s), ${counts.projectTopicsToUpload} topic(s)/subtopic(s), and ${counts.settingsToUpload ? "settings" : "no settings"}`;
+            setStatus("synced", `Synced ${summary} at ${new Date(state.syncedAt).toLocaleString()}.`);
         }catch(error){
             reportSyncError(error, operation);
         }finally{
@@ -853,13 +1464,20 @@
             if(state.userId !== userId){
                 throw new SyncConflictError("The local sync checkpoint belongs to a different account. No data was changed.");
             }
+            if(!hasProjectBaseline(state)){
+                await processFirstProjectSync(client, userId, generation, local, localFingerprint, cloud, state);
+                return;
+            }
+            validateProjectNameCollisions(local, cloud);
             const plan = {
                 subjects:await classifyRecords("subject", local.subjects, cloud.subjects, state.baseline.subjects),
                 tasks:await classifyRecords("task", local.tasks, cloud.tasks, state.baseline.tasks),
-                settings:await classifySettings(local.settings, cloud.settings, state.baseline.settings)
+                settings:await classifySettings(local.settings, cloud.settings, state.baseline.settings),
+                projectSubjects:await classifyRecords("Project subject", local.projectSubjects, cloud.projectSubjects, state.baseline.projectSubjects),
+                projectTopics:await classifyProjectTopics(local, cloud, state.baseline.projectTopics, state.baseline.projectTopicOrders)
             };
             const finalLocal = applyPulls(local, cloud, plan);
-            const finalSnapshot = makeLocalData(finalLocal.subjects, finalLocal.tasks, finalLocal.settings);
+            const finalSnapshot = makeLocalData(finalLocal.subjects, finalLocal.tasks, finalLocal.settings, finalLocal.projectSubjects, finalLocal.projectTopics);
             await assertLocalUnchanged(localFingerprint);
             await pushChanges(client, userId, generation, finalSnapshot, cloud, plan, operation);
             assertOperationIdentity(userId, generation);
@@ -869,6 +1487,9 @@
             if(!await localMatchesCloud(finalSnapshot, verifiedCloud)){
                 throw new SyncConflictError("Data changed during sync and could not be reconciled. Review both copies before retrying.");
             }
+            const orderedProjectSubjects = orderProjectSubjects(finalLocal.projectSubjects, verifiedCloud.projectSubjects);
+            finalLocal.changedProjectSubjects = finalLocal.changedProjectSubjects || projectSubjectOrderChanged(finalLocal.projectSubjects, orderedProjectSubjects);
+            finalLocal.projectSubjects = orderedProjectSubjects;
             const nextState = await makeState(userId, verifiedCloud);
             assertOperationIdentity(userId, generation);
             await assertLocalUnchanged(localFingerprint);

@@ -418,7 +418,7 @@
         try{
             await loadClassicScript("./script.js?v=iron-mind-v5-account-workspaces");
             try{
-                await loadClassicScript("./supabase-sync.js?v=iron-mind-task-settings-sync-v1");
+                await loadClassicScript("./supabase-sync.js?v=iron-mind-task-settings-sync-v2");
             }catch(error){
                 // Cloud sync is optional; the local-first app must still start if this asset is unavailable offline.
             }
