@@ -29,6 +29,20 @@
 
     class SyncConflictError extends Error{}
     class SyncAuthError extends Error{}
+    class ProjectDeletionConflict extends SyncConflictError{
+        constructor(label, recordId, localHasRecord, cloudHasRecord, survivorMatchesBaseline = null){
+            const missingFrom = localHasRecord ? "cloud" : cloudHasRecord ? "local workspace" : "both local and cloud data";
+            const comparison = survivorMatchesBaseline === true
+                ? "; the surviving record matches the saved baseline"
+                : survivorMatchesBaseline === false ? "; the surviving record differs from the saved baseline" : "";
+            super(`Saved Project baseline ${label} ID ${recordId} is missing from ${missingFrom}${comparison}.`);
+            this.label = label;
+            this.recordId = recordId;
+            this.localHasRecord = localHasRecord;
+            this.cloudHasRecord = cloudHasRecord;
+            this.survivorMatchesBaseline = survivorMatchesBaseline;
+        }
+    }
 
     function setStatus(state, message){
         statusElement.dataset.syncState = state;
@@ -645,25 +659,35 @@
 
     function showFirstUploadPreview(local, cloud, userId, scope = "all", options = {}){
         const counts = countForPreview(local, cloud);
+        const projectScope = scope === "projects" || scope === "projects-reconcile";
+        const reconciliation = scope === "projects-reconcile" ? options.conflict : null;
         const cloudProjectSubjectsToDownload = [...cloud.projectSubjects.keys()]
             .filter(key => !local.projectSubjects.has(key)).length;
         const cloudProjectTopicsToDownload = [...cloud.projectTopics.keys()]
             .filter(key => !local.projectTopics.has(key)).length;
-        const alreadyPresent = scope === "projects"
+        const alreadyPresent = projectScope
             ? local.projectSubjects.size + local.projectTopics.size - counts.projectSubjectsToUpload - counts.projectTopicsToUpload
             : local.subjects.size + local.tasks.size + (local.settings === null ? 0 : 1) -
                 counts.subjectsToUpload - counts.tasksToUpload - counts.settingsToUpload +
                 local.projectSubjects.size + local.projectTopics.size - counts.projectSubjectsToUpload - counts.projectTopicsToUpload;
         const email = workspace.session?.user?.email || "this verified account";
-        const uploadSummary = scope === "projects"
+        const uploadSummary = projectScope
             ? `${counts.projectSubjectsToUpload} Project subjects and ${counts.projectTopicsToUpload} topics/subtopics will be uploaded; ${cloudProjectSubjectsToDownload} cloud subjects and ${cloudProjectTopicsToDownload} cloud topics/subtopics will be added to this workspace.`
             : `${counts.subjectsToUpload} task subjects, ${counts.tasksToUpload} tasks, ${counts.projectSubjectsToUpload} Project subjects, ${counts.projectTopicsToUpload} topics/subtopics, and ${counts.settingsToUpload ? "your settings" : "no settings"} will be uploaded.`;
-        previewDetails.textContent =
-            `Review first upload to ${email} (${userId}): ${uploadSummary} ` +
-            `${alreadyPresent} matching record(s) are already in the cloud and will not be replaced. Local data stays in this account workspace; nothing will be deleted.`;
+        const baselineComparison = reconciliation?.survivorMatchesBaseline === true
+            ? "The surviving copy matches the saved baseline, consistent with a deletion on the missing side. "
+            : reconciliation?.survivorMatchesBaseline === false
+                ? "The surviving copy differs from the saved baseline, so a change and deletion overlapped. "
+                : "";
+        const intro = reconciliation
+            ? `Review Project recovery for ${email} (${userId}): the saved baseline includes ${reconciliation.label} ID ${reconciliation.recordId}, which is missing from ${reconciliation.localHasRecord ? "the cloud" : "this local workspace"}. ${baselineComparison}Confirming restores missing records from the side that still has them. `
+            : `Review ${projectScope ? "Project data" : "first upload"} for ${email} (${userId}): `;
+        previewDetails.textContent = reconciliation
+            ? `${intro}${uploadSummary} No records will be deleted; the saved baseline changes only after the copies are reconciled.`
+            : `${intro}${uploadSummary} ${alreadyPresent} matching record(s) are already in the cloud and will not be replaced. Local data stays in this account workspace; nothing will be deleted.`;
         previewRecords.replaceChildren();
         const previewItems = [];
-        if(scope !== "projects"){
+        if(!projectScope){
             for(const [key, row] of local.subjects){
                 if(!cloud.subjects.has(key)) previewItems.push(`Subject: ${row.canonical.name} (${row.canonical.priority} priority)`);
             }
@@ -685,7 +709,7 @@
                 previewItems.push(`Project topic ${key}: ${projectTopicPreviewPath(local, row)} (sibling order ${row.canonical.order})`);
             }
         }
-        if(scope === "projects"){
+        if(projectScope){
             for(const [key, row] of cloud.projectSubjects){
                 if(!local.projectSubjects.has(key)) previewItems.push(`Add cloud Project subject ${key}: ${row.canonical.name}`);
             }
@@ -713,11 +737,15 @@
             cloudFingerprint:null,
             checkpointWasAbsent:Boolean(options.checkpointWasAbsent),
             checkpointFingerprint:null,
-            projectBaseState:scope === "projects" && options.checkpointWasAbsent ? options.checkpoint || null : null
+            projectBaseState:scope === "projects" && options.checkpointWasAbsent ? options.checkpoint || null : null,
+            reconciliation:Boolean(reconciliation)
         };
         pendingUpload = preview;
         previewPanel.classList.remove("hidden");
-        setStatus("idle", `Not synced. Review the ${scope === "projects" ? "Project data" : "first-upload"} preview before any local data is uploaded.`);
+        confirmButton.textContent = reconciliation ? "Confirm Project recovery" : "Confirm reviewed changes";
+        setStatus("idle", reconciliation
+            ? "Review the Project recovery preview. Nothing changes until you confirm."
+            : `Not synced. Review the ${projectScope ? "Project data" : "first-upload"} preview before any local data is uploaded.`);
         updateControls();
         Promise.all([
             datasetFingerprint(local),
@@ -827,7 +855,7 @@
         };
     }
 
-    async function classifyRecords(label, local, cloud, baseline){
+    async function classifyRecords(label, local, cloud, baseline, restoreMissing = false){
         const push = new Set();
         const pull = new Set();
         const localSignatures = await signatures(local);
@@ -839,6 +867,17 @@
             const hasBase = Object.prototype.hasOwnProperty.call(baseSignatures, key);
             const localHas = local.has(key), cloudHas = cloud.has(key);
             if(hasBase && (!localHas || !cloudHas)){
+                if(restoreMissing && localHas !== cloudHas){
+                    if(localHas) push.add(key);
+                    else pull.add(key);
+                    continue;
+                }
+                if(label === "Project subject" || label === "Project topic"){
+                    const survivorMatchesBaseline = localHas
+                        ? localSignatures[key] === baseSignatures[key]
+                        : cloudHas ? cloudSignatures[key] === baseSignatures[key] : null;
+                    throw new ProjectDeletionConflict(label, key, localHas, cloudHas, survivorMatchesBaseline);
+                }
                 throw new SyncConflictError(`A ${label} record was removed on one side. Deletion sync is not enabled, so neither dataset was changed.`);
             }
             if(!hasBase){
@@ -884,8 +923,8 @@
         return { push:localChanged && !cloudChanged, pull:cloudChanged && !localChanged };
     }
 
-    async function classifyProjectTopics(local, cloud, baseline, baselineOrders){
-        const plan = await classifyRecords("Project topic", local.projectTopics, cloud.projectTopics, baseline);
+    async function classifyProjectTopics(local, cloud, baseline, baselineOrders, restoreMissing = false){
+        const plan = await classifyRecords("Project topic", local.projectTopics, cloud.projectTopics, baseline, restoreMissing);
         const localOrders = projectTopicOrderSignatures(local.projectTopics);
         const cloudOrders = projectTopicOrderSignatures(cloud.projectTopics);
         const baseOrders = baselineOrders || {};
@@ -1432,7 +1471,7 @@
         if(setOfflineStatus()) return;
         const operation = { writesStarted:false };
         setBusy(true);
-        setStatus("syncing", preview.scope === "projects"
+        setStatus("syncing", preview.scope.startsWith("projects")
             ? "Verifying the preview and applying the confirmed Project additions…"
             : "Verifying the first-upload preview and uploading the confirmed records…");
         try{
@@ -1455,7 +1494,8 @@
                 throw new SyncConflictError("Local data changed while checking the cloud. Run Sync now to review a fresh preview.");
             }
             const uploadLocal = latestLocal;
-            const projectOnlyPreview = preview.scope === "projects";
+            const projectOnlyPreview = preview.scope === "projects" || preview.scope === "projects-reconcile";
+            const projectReconciliationPreview = preview.scope === "projects-reconcile";
             const currentCloudFingerprint = await datasetFingerprint(cloud);
             if(currentCloudFingerprint !== preview.cloudFingerprint){
                 discardPreview(preview);
@@ -1476,6 +1516,12 @@
             if(projectOnlyPreview){
                 if(preview.checkpointWasAbsent){
                     projectPreviousState = preview.projectBaseState || emptySyncState(userId);
+                }else if(projectReconciliationPreview){
+                    if(!hasProjectBaseline(previousState)){
+                        discardPreview(preview);
+                        throw new SyncConflictError("The Project checkpoint no longer contains a baseline. Run Sync now to review the current state.");
+                    }
+                    projectPreviousState = previousState;
                 }else if(hasProjectBaseline(previousState)){
                     discardPreview(preview);
                     throw new SyncConflictError("The Project sync checkpoint changed after the preview. Run Sync now to review the current state.");
@@ -1497,18 +1543,24 @@
             const projectTopicsToDownload = projectOnlyPreview
                 ? [...cloud.projectTopics.keys()].filter(key => !uploadLocal.projectTopics.has(key)).length
                 : 0;
+            const projectSubjectsPlan = projectReconciliationPreview
+                ? await classifyRecords("Project subject", uploadLocal.projectSubjects, cloud.projectSubjects, projectPreviousState.baseline.projectSubjects, true)
+                : {
+                    push:new Set([...uploadLocal.projectSubjects.keys()].filter(key => !cloud.projectSubjects.has(key))),
+                    pull:new Set(projectOnlyPreview ? [...cloud.projectSubjects.keys()].filter(key => !uploadLocal.projectSubjects.has(key)) : [])
+                };
+            const projectTopicsPlan = projectReconciliationPreview
+                ? await classifyProjectTopics(uploadLocal, cloud, projectPreviousState.baseline.projectTopics, projectPreviousState.baseline.projectTopicOrders, true)
+                : {
+                    push:new Set([...uploadLocal.projectTopics.keys()].filter(key => !cloud.projectTopics.has(key))),
+                    pull:new Set(projectOnlyPreview ? [...cloud.projectTopics.keys()].filter(key => !uploadLocal.projectTopics.has(key)) : [])
+                };
             const plan = {
                 subjects:{ push:projectOnlyPreview ? new Set() : new Set([...uploadLocal.subjects.keys()].filter(key => !cloud.subjects.has(key))), pull:new Set() },
                 tasks:{ push:projectOnlyPreview ? new Set() : new Set([...uploadLocal.tasks.keys()].filter(key => !cloud.tasks.has(key))), pull:new Set() },
                 settings:{ push:!projectOnlyPreview && uploadLocal.settings !== null && cloud.settings === null, pull:false },
-                projectSubjects:{
-                    push:new Set([...uploadLocal.projectSubjects.keys()].filter(key => !cloud.projectSubjects.has(key))),
-                    pull:new Set(projectOnlyPreview ? [...cloud.projectSubjects.keys()].filter(key => !uploadLocal.projectSubjects.has(key)) : [])
-                },
-                projectTopics:{
-                    push:new Set([...uploadLocal.projectTopics.keys()].filter(key => !cloud.projectTopics.has(key))),
-                    pull:new Set(projectOnlyPreview ? [...cloud.projectTopics.keys()].filter(key => !uploadLocal.projectTopics.has(key)) : [])
-                }
+                projectSubjects:projectSubjectsPlan,
+                projectTopics:projectTopicsPlan
             };
             const finalLocal = {
                 subjects:[...uploadLocal.subjects.values()].map(row => row.original),
@@ -1617,12 +1669,27 @@
                 return;
             }
             validateProjectNameCollisions(local, cloud);
+            const subjectsPlan = await classifyRecords("subject", local.subjects, cloud.subjects, state.baseline.subjects);
+            const tasksPlan = await classifyRecords("task", local.tasks, cloud.tasks, state.baseline.tasks);
+            const settingsPlan = await classifySettings(local.settings, cloud.settings, state.baseline.settings);
+            let projectSubjectsPlan, projectTopicsPlan;
+            try{
+                projectSubjectsPlan = await classifyRecords("Project subject", local.projectSubjects, cloud.projectSubjects, state.baseline.projectSubjects);
+                projectTopicsPlan = await classifyProjectTopics(local, cloud, state.baseline.projectTopics, state.baseline.projectTopicOrders);
+            }catch(error){
+                if(!(error instanceof ProjectDeletionConflict)) throw error;
+                if(error.localHasRecord === error.cloudHasRecord){
+                    throw new SyncConflictError(`${error.message} The record is absent from both copies, so it cannot be restored automatically. Neither dataset nor the checkpoint was changed.`);
+                }
+                showFirstUploadPreview(local, cloud, userId, "projects-reconcile", { checkpoint:state, conflict:error });
+                return;
+            }
             const plan = {
-                subjects:await classifyRecords("subject", local.subjects, cloud.subjects, state.baseline.subjects),
-                tasks:await classifyRecords("task", local.tasks, cloud.tasks, state.baseline.tasks),
-                settings:await classifySettings(local.settings, cloud.settings, state.baseline.settings),
-                projectSubjects:await classifyRecords("Project subject", local.projectSubjects, cloud.projectSubjects, state.baseline.projectSubjects),
-                projectTopics:await classifyProjectTopics(local, cloud, state.baseline.projectTopics, state.baseline.projectTopicOrders)
+                subjects:subjectsPlan,
+                tasks:tasksPlan,
+                settings:settingsPlan,
+                projectSubjects:projectSubjectsPlan,
+                projectTopics:projectTopicsPlan
             };
             const finalLocal = applyPulls(local, cloud, plan);
             const finalSnapshot = makeLocalData(finalLocal.subjects, finalLocal.tasks, finalLocal.settings, finalLocal.projectSubjects, finalLocal.projectTopics);
@@ -1679,7 +1746,7 @@
         if(busy) return;
         pendingUpload = null;
         previewPanel.classList.add("hidden");
-        setStatus("idle", "Upload cancelled. No local data was uploaded.");
+        setStatus("idle", "Review cancelled. Local and cloud data were not changed.");
     }
 
     syncButton.addEventListener("click", synchronize);
