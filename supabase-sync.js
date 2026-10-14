@@ -55,7 +55,7 @@
         const ready = canUseAccountWorkspace();
         panel.classList.toggle("hidden", !ready);
         syncButton.disabled = busy || !ready;
-        confirmButton.disabled = busy || !ready || !pendingUpload?.fingerprint;
+        confirmButton.disabled = busy || !ready || !pendingUpload?.fingerprint || !pendingUpload?.cloudFingerprint;
         cancelButton.disabled = busy;
         accountActionButtons.forEach(button => { button.disabled = busy || !ready; });
         if(accountElement && ready){
@@ -501,6 +501,16 @@
         return subjectsMatch && tasksMatch && localSettings === cloudSettings && projectSubjectsMatch && projectTopicsMatch;
     }
 
+    async function sameTaskAndSettingsData(left, right){
+        const [subjectsMatch, tasksMatch, leftSettings, rightSettings] = await Promise.all([
+            mapsEqual(left.subjects, right.subjects),
+            mapsEqual(left.tasks, right.tasks),
+            settingsSignature(left.settings),
+            settingsSignature(right.settings)
+        ]);
+        return subjectsMatch && tasksMatch && leftSettings === rightSettings;
+    }
+
     async function cloudIsMatchingSubset(local, cloud){
         for(const [key, row] of cloud.subjects){
             const localRow = local.subjects.get(key);
@@ -523,6 +533,23 @@
             const matching = superset.get(key);
             if(!matching || await signature(matching.canonical) !== await signature(row.canonical)) return false;
         }
+        return true;
+    }
+
+    async function projectMapsCanMerge(left, right){
+        for(const [key, row] of left){
+            const matching = right.get(key);
+            if(matching && await signature(row.canonical) !== await signature(matching.canonical)) return false;
+        }
+        return true;
+    }
+
+    async function projectDataCanMerge(local, cloud){
+        if(!await projectMapsCanMerge(local.projectSubjects, cloud.projectSubjects) ||
+            !await projectMapsCanMerge(local.projectTopics, cloud.projectTopics)) return false;
+
+        const mergedTopics = new Map([...cloud.projectTopics, ...local.projectTopics]);
+        validateTopicSiblingOrder(mergedTopics, "Combined");
         return true;
     }
 
@@ -616,8 +643,12 @@
         return [subject?.canonical.name || topicRow.canonical.subjectId, ...names].join(" / ");
     }
 
-    function showFirstUploadPreview(local, cloud, userId, scope = "all"){
+    function showFirstUploadPreview(local, cloud, userId, scope = "all", options = {}){
         const counts = countForPreview(local, cloud);
+        const cloudProjectSubjectsToDownload = [...cloud.projectSubjects.keys()]
+            .filter(key => !local.projectSubjects.has(key)).length;
+        const cloudProjectTopicsToDownload = [...cloud.projectTopics.keys()]
+            .filter(key => !local.projectTopics.has(key)).length;
         const alreadyPresent = scope === "projects"
             ? local.projectSubjects.size + local.projectTopics.size - counts.projectSubjectsToUpload - counts.projectTopicsToUpload
             : local.subjects.size + local.tasks.size + (local.settings === null ? 0 : 1) -
@@ -625,7 +656,7 @@
                 local.projectSubjects.size + local.projectTopics.size - counts.projectSubjectsToUpload - counts.projectTopicsToUpload;
         const email = workspace.session?.user?.email || "this verified account";
         const uploadSummary = scope === "projects"
-            ? `${counts.projectSubjectsToUpload} Project subjects and ${counts.projectTopicsToUpload} topics/subtopics will be uploaded.`
+            ? `${counts.projectSubjectsToUpload} Project subjects and ${counts.projectTopicsToUpload} topics/subtopics will be uploaded; ${cloudProjectSubjectsToDownload} cloud subjects and ${cloudProjectTopicsToDownload} cloud topics/subtopics will be added to this workspace.`
             : `${counts.subjectsToUpload} task subjects, ${counts.tasksToUpload} tasks, ${counts.projectSubjectsToUpload} Project subjects, ${counts.projectTopicsToUpload} topics/subtopics, and ${counts.settingsToUpload ? "your settings" : "no settings"} will be uploaded.`;
         previewDetails.textContent =
             `Review first upload to ${email} (${userId}): ${uploadSummary} ` +
@@ -654,6 +685,16 @@
                 previewItems.push(`Project topic ${key}: ${projectTopicPreviewPath(local, row)} (sibling order ${row.canonical.order})`);
             }
         }
+        if(scope === "projects"){
+            for(const [key, row] of cloud.projectSubjects){
+                if(!local.projectSubjects.has(key)) previewItems.push(`Add cloud Project subject ${key}: ${row.canonical.name}`);
+            }
+            for(const [key, row] of cloud.projectTopics){
+                if(!local.projectTopics.has(key)){
+                    previewItems.push(`Add cloud Project topic ${key}: ${projectTopicPreviewPath(cloud, row)} (sibling order ${row.canonical.order})`);
+                }
+            }
+        }
         const visibleItems = previewItems.slice(0, 20);
         visibleItems.forEach(label => {
             const item = document.createElement("li");
@@ -665,14 +706,28 @@
             remainder.textContent = `…and ${previewItems.length - visibleItems.length} more item(s).`;
             previewRecords.appendChild(remainder);
         }
-        const preview = { userId, scope, fingerprint:null };
+        const preview = {
+            userId,
+            scope,
+            fingerprint:null,
+            cloudFingerprint:null,
+            checkpointWasAbsent:Boolean(options.checkpointWasAbsent),
+            checkpointFingerprint:null,
+            projectBaseState:scope === "projects" && options.checkpointWasAbsent ? options.checkpoint || null : null
+        };
         pendingUpload = preview;
         previewPanel.classList.remove("hidden");
         setStatus("idle", `Not synced. Review the ${scope === "projects" ? "Project data" : "first-upload"} preview before any local data is uploaded.`);
         updateControls();
-        datasetFingerprint(local).then(fingerprint => {
+        Promise.all([
+            datasetFingerprint(local),
+            datasetFingerprint(cloud),
+            options.checkpoint ? signature(options.checkpoint) : Promise.resolve(null)
+        ]).then(([fingerprint, cloudFingerprint, checkpointFingerprint]) => {
             if(pendingUpload === preview){
                 preview.fingerprint = fingerprint;
+                preview.cloudFingerprint = cloudFingerprint;
+                preview.checkpointFingerprint = checkpointFingerprint;
                 updateControls();
             }
         }).catch(() => {
@@ -682,6 +737,19 @@
             setStatus("failed", "The local dataset could not be verified. Nothing was uploaded.");
             updateControls();
         });
+    }
+
+    function discardPreview(preview){
+        if(pendingUpload !== preview) return;
+        pendingUpload = null;
+        previewPanel.classList.add("hidden");
+        updateControls();
+    }
+
+    function assertPreviewActive(preview){
+        if(pendingUpload !== preview){
+            throw new SyncConflictError("The upload preview is no longer active. Run Sync now to review the current data.");
+        }
     }
 
     function readState(){
@@ -735,6 +803,26 @@
                 projectSubjects:await signatures(cloud.projectSubjects),
                 projectTopics:await signatures(cloud.projectTopics),
                 projectTopicOrders:projectTopicOrderSignatures(cloud.projectTopics)
+            }
+        };
+    }
+
+    function emptySyncState(userId){
+        return {
+            version:1,
+            userId,
+            baseline:{ subjects:{}, tasks:{}, settings:null }
+        };
+    }
+
+    async function makeProjectStartingState(userId, cloud){
+        return {
+            version:1,
+            userId,
+            baseline:{
+                subjects:await signatures(cloud.subjects),
+                tasks:await signatures(cloud.tasks),
+                settings:await settingsSignature(cloud.settings)
             }
         };
     }
@@ -1276,13 +1364,13 @@
             return;
         }
         if(localHas && (!cloudHas || await cloudIsMatchingSubset(local, cloud))){
-            showFirstUploadPreview(local, cloud, userId);
+            showFirstUploadPreview(local, cloud, userId, "all", { checkpointWasAbsent:true });
             return;
         }
         throw new SyncConflictError("This account and this device both contain different task, settings, or Project data, and there is no prior sync checkpoint. No data was changed. Resolve or back up the two datasets before syncing.");
     }
 
-    async function processFirstProjectSync(client, userId, generation, local, localFingerprint, cloud, previousState){
+    async function processFirstProjectSync(client, userId, generation, local, localFingerprint, cloud, previousState, checkpointWasAbsent = false){
         assertOperationIdentity(userId, generation);
         await assertLocalUnchanged(localFingerprint);
         validateProjectNameCollisions(local, cloud);
@@ -1328,63 +1416,99 @@
             return;
         }
         if(await projectCloudIsSubset(local, cloud)){
-            showFirstUploadPreview(local, cloud, userId, "projects");
+            showFirstUploadPreview(local, cloud, userId, "projects", { checkpoint:previousState, checkpointWasAbsent });
+            return;
+        }
+        if(await projectDataCanMerge(local, cloud)){
+            showFirstUploadPreview(local, cloud, userId, "projects", { checkpoint:previousState, checkpointWasAbsent });
             return;
         }
         throw new SyncConflictError("This device and the cloud contain different Project subjects or topics without a shared baseline. No Project data was changed; review both copies before syncing.");
     }
 
     async function confirmFirstUpload(){
-        if(busy || !pendingUpload) return;
+        const preview = pendingUpload;
+        if(busy || !preview || !preview.fingerprint || !preview.cloudFingerprint) return;
         if(setOfflineStatus()) return;
         const operation = { writesStarted:false };
         setBusy(true);
-        setStatus("syncing", "Verifying the preview and uploading the confirmed records…");
+        setStatus("syncing", preview.scope === "projects"
+            ? "Verifying the preview and applying the confirmed Project additions…"
+            : "Verifying the first-upload preview and uploading the confirmed records…");
         try{
             const { client, userId, generation } = await getVerifiedClient();
             let projectPreviousState = null;
-            if(userId !== pendingUpload.userId) throw new SyncConflictError("The signed-in account changed. Review the upload for the current account.");
+            assertPreviewActive(preview);
+            if(userId !== preview.userId) throw new SyncConflictError("The signed-in account changed. Review the upload for the current account.");
             const local = readLocalData();
-            if(await datasetFingerprint(local) !== pendingUpload.fingerprint){
-                pendingUpload = null;
-                previewPanel.classList.add("hidden");
+            if(await datasetFingerprint(local) !== preview.fingerprint){
+                discardPreview(preview);
                 throw new SyncConflictError("Local data changed after the preview. Run Sync now to review a fresh preview.");
             }
+            assertPreviewActive(preview);
             const cloud = await readCloudData(client, userId);
             assertOperationIdentity(userId, generation);
+            assertPreviewActive(preview);
             const latestLocal = readLocalData();
-            if(await datasetFingerprint(latestLocal) !== pendingUpload.fingerprint){
-                pendingUpload = null;
-                previewPanel.classList.add("hidden");
+            if(await datasetFingerprint(latestLocal) !== preview.fingerprint){
+                discardPreview(preview);
                 throw new SyncConflictError("Local data changed while checking the cloud. Run Sync now to review a fresh preview.");
             }
             const uploadLocal = latestLocal;
-            const projectOnlyPreview = pendingUpload.scope === "projects";
-            if(projectOnlyPreview){
-                const previousState = readState();
-                if(!previousState || previousState.userId !== userId || hasProjectBaseline(previousState)){
-                    pendingUpload = null;
-                    previewPanel.classList.add("hidden");
-                    throw new SyncConflictError("The Project sync checkpoint changed after the preview. Run Sync now to review the current state.");
-                }
-                projectPreviousState = previousState;
-                validateProjectNameCollisions(uploadLocal, cloud);
+            const projectOnlyPreview = preview.scope === "projects";
+            const currentCloudFingerprint = await datasetFingerprint(cloud);
+            if(currentCloudFingerprint !== preview.cloudFingerprint){
+                discardPreview(preview);
+                throw new SyncConflictError("Cloud data changed after the preview. Neither dataset was replaced; run Sync now to review the current data.");
             }
-            const cloudStillMatches = projectOnlyPreview
-                ? await projectCloudIsSubset(uploadLocal, cloud)
-                : await cloudIsMatchingSubset(uploadLocal, cloud);
-            if(!cloudStillMatches){
-                pendingUpload = null;
-                previewPanel.classList.add("hidden");
-                throw new SyncConflictError("Cloud data changed after the preview. Neither dataset was replaced; run Sync now to review the conflict.");
+            assertPreviewActive(preview);
+            const previousState = readState();
+            if(preview.checkpointWasAbsent){
+                if(previousState !== null){
+                    discardPreview(preview);
+                    throw new SyncConflictError("The sync checkpoint changed after the preview. Run Sync now to review the current state.");
+                }
+            }else if(!previousState || previousState.userId !== userId ||
+                !preview.checkpointFingerprint || await signature(previousState) !== preview.checkpointFingerprint){
+                discardPreview(preview);
+                throw new SyncConflictError("The Project sync checkpoint changed after the preview. Run Sync now to review the current state.");
+            }
+            if(projectOnlyPreview){
+                if(preview.checkpointWasAbsent){
+                    projectPreviousState = preview.projectBaseState || emptySyncState(userId);
+                }else if(hasProjectBaseline(previousState)){
+                    discardPreview(preview);
+                    throw new SyncConflictError("The Project sync checkpoint changed after the preview. Run Sync now to review the current state.");
+                }else{
+                    projectPreviousState = previousState;
+                }
+                validateProjectNameCollisions(uploadLocal, cloud);
+                if(!await projectDataCanMerge(uploadLocal, cloud)){
+                    throw new SyncConflictError("The local and cloud Project records conflict by ID or sibling order. Review both copies; neither dataset was changed.");
+                }
+            }else if(!await cloudIsMatchingSubset(uploadLocal, cloud)){
+                discardPreview(preview);
+                throw new SyncConflictError("Cloud data no longer matches the first-upload preview. Neither dataset was replaced; run Sync now to review the conflict.");
             }
             const counts = countForPreview(uploadLocal, cloud);
+            const projectSubjectsToDownload = projectOnlyPreview
+                ? [...cloud.projectSubjects.keys()].filter(key => !uploadLocal.projectSubjects.has(key)).length
+                : 0;
+            const projectTopicsToDownload = projectOnlyPreview
+                ? [...cloud.projectTopics.keys()].filter(key => !uploadLocal.projectTopics.has(key)).length
+                : 0;
             const plan = {
                 subjects:{ push:projectOnlyPreview ? new Set() : new Set([...uploadLocal.subjects.keys()].filter(key => !cloud.subjects.has(key))), pull:new Set() },
                 tasks:{ push:projectOnlyPreview ? new Set() : new Set([...uploadLocal.tasks.keys()].filter(key => !cloud.tasks.has(key))), pull:new Set() },
                 settings:{ push:!projectOnlyPreview && uploadLocal.settings !== null && cloud.settings === null, pull:false },
-                projectSubjects:{ push:new Set([...uploadLocal.projectSubjects.keys()].filter(key => !cloud.projectSubjects.has(key))), pull:new Set() },
-                projectTopics:{ push:new Set([...uploadLocal.projectTopics.keys()].filter(key => !cloud.projectTopics.has(key))), pull:new Set() }
+                projectSubjects:{
+                    push:new Set([...uploadLocal.projectSubjects.keys()].filter(key => !cloud.projectSubjects.has(key))),
+                    pull:new Set(projectOnlyPreview ? [...cloud.projectSubjects.keys()].filter(key => !uploadLocal.projectSubjects.has(key)) : [])
+                },
+                projectTopics:{
+                    push:new Set([...uploadLocal.projectTopics.keys()].filter(key => !cloud.projectTopics.has(key))),
+                    pull:new Set(projectOnlyPreview ? [...cloud.projectTopics.keys()].filter(key => !uploadLocal.projectTopics.has(key)) : [])
+                }
             };
             const finalLocal = {
                 subjects:[...uploadLocal.subjects.values()].map(row => row.original),
@@ -1402,13 +1526,23 @@
             finalLocal.tasks = finalLocal.tasks.map(task => ({ ...task }));
             finalLocal.projectSubjects = finalLocal.projectSubjects.map(subject => ({ ...subject }));
             finalLocal.projectTopics = finalLocal.projectTopics.map(topic => ({ ...topic }));
+            if(projectOnlyPreview){
+                const pulledProjects = applyProjectPulls(uploadLocal, cloud, plan);
+                finalLocal.projectSubjects = pulledProjects.projectSubjects;
+                finalLocal.projectTopics = pulledProjects.projectTopics;
+                finalLocal.changedProjectSubjects = pulledProjects.changedProjectSubjects;
+                finalLocal.changedProjectTopics = pulledProjects.changedProjectTopics;
+            }
             const finalSnapshot = makeLocalData(finalLocal.subjects, finalLocal.tasks, finalLocal.settings, finalLocal.projectSubjects, finalLocal.projectTopics);
-            await assertLocalUnchanged(pendingUpload.fingerprint);
+            await assertLocalUnchanged(preview.fingerprint);
+            assertPreviewActive(preview);
             await pushChanges(client, userId, generation, finalSnapshot, cloud, plan, operation);
             assertOperationIdentity(userId, generation);
+            assertPreviewActive(preview);
             const verifiedCloud = await readCloudData(client, userId);
             assertOperationIdentity(userId, generation);
-            await assertLocalUnchanged(pendingUpload.fingerprint);
+            assertPreviewActive(preview);
+            await assertLocalUnchanged(preview.fingerprint);
             const verified = projectOnlyPreview
                 ? await sameProjectData(finalSnapshot, verifiedCloud)
                 : await localMatchesCloud(finalSnapshot, verifiedCloud);
@@ -1416,16 +1550,24 @@
                 throw new SyncConflictError("The uploaded data did not match the confirmed local snapshot. No local records were changed; review the cloud before retrying.");
             }
             const orderedProjectSubjects = orderProjectSubjects(finalLocal.projectSubjects, verifiedCloud.projectSubjects);
-            finalLocal.changedProjectSubjects = projectSubjectOrderChanged(finalLocal.projectSubjects, orderedProjectSubjects);
+            finalLocal.changedProjectSubjects = finalLocal.changedProjectSubjects || projectSubjectOrderChanged(finalLocal.projectSubjects, orderedProjectSubjects);
             finalLocal.projectSubjects = orderedProjectSubjects;
             const state = projectOnlyPreview
                 ? await makeProjectState(userId, verifiedCloud, projectPreviousState)
                 : await makeState(userId, verifiedCloud);
+            assertPreviewActive(preview);
+            assertOperationIdentity(userId, generation);
+            const latestCheckpoint = readState();
+            if(preview.checkpointWasAbsent ? latestCheckpoint !== null :
+                !latestCheckpoint || await signature(latestCheckpoint) !== preview.checkpointFingerprint){
+                throw new SyncConflictError("The sync checkpoint changed during confirmation. The local Project workspace was not updated; review the cloud before retrying.");
+            }
+            await assertLocalUnchanged(preview.fingerprint);
             await persistResult(finalLocal, state);
             pendingUpload = null;
             previewPanel.classList.add("hidden");
             const summary = projectOnlyPreview
-                ? `${counts.projectSubjectsToUpload} Project subject(s) and ${counts.projectTopicsToUpload} topic(s)/subtopic(s)`
+                ? `${counts.projectSubjectsToUpload} Project subject(s) and ${counts.projectTopicsToUpload} topic(s)/subtopic(s) uploaded; ${projectSubjectsToDownload} subject(s) and ${projectTopicsToDownload} topic(s)/subtopic(s) downloaded`
                 : `${counts.subjectsToUpload} task subject(s), ${counts.tasksToUpload} task(s), ${counts.projectSubjectsToUpload} Project subject(s), ${counts.projectTopicsToUpload} topic(s)/subtopic(s), and ${counts.settingsToUpload ? "settings" : "no settings"}`;
             setStatus("synced", `Synced ${summary} at ${new Date(state.syncedAt).toLocaleString()}.`);
         }catch(error){
@@ -1458,6 +1600,12 @@
             }
             const state = readState();
             if(!state){
+                const hasProjectData = mapHasProjectRecords(local) || mapHasProjectRecords(cloud);
+                if(hasProjectData && await sameTaskAndSettingsData(local, cloud)){
+                    const initialState = await makeProjectStartingState(userId, cloud);
+                    await processFirstProjectSync(client, userId, generation, local, localFingerprint, cloud, initialState, true);
+                    return;
+                }
                 await processFirstSync(client, userId, generation, local, localFingerprint, cloud);
                 return;
             }
