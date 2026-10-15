@@ -6,17 +6,17 @@ additional_redirect_urls = ["http://127.0.0.1:8000/**"]
 
 # Keep this CLI project separate from the existing iron-mind-test stack on the default ports.
 [api]
-port = 55321
+port = 54421
 
 [db]
-port = 55322
-shadow_port = 55320
+port = 54422
+shadow_port = 54420
 
 [studio]
-port = 55323
+port = 54423
 
 [local_smtp]
-port = 55324
+port = 54424
 
 [analytics]
-port = 55327
+port = 54427

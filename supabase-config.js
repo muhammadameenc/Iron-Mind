@@ -6,7 +6,7 @@ window.IRON_MIND_SUPABASE_CONFIG = null;
 
 if(window.location.origin === "http://127.0.0.1:8000"){
     window.IRON_MIND_SUPABASE_CONFIG = Object.freeze({
-    url: "http://127.0.0.1:54321",
+    url: "http://127.0.0.1:54421",
     publishableKey: "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH"
     });
 }
