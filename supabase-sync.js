@@ -19,6 +19,7 @@
         "openAccountWorkspaceButton"
     ].map(id => document.getElementById(id)).filter(Boolean);
     const SYNC_STATE_KEY = "ironMindCloudSyncState";
+    const LOCAL_TOMBSTONES_KEY = "ironMindCloudTombstones";
     const VALID_STATUSES = new Set(["Planned", "Halfway", "Completed", "Missed"]);
 
     if(!workspace || !panel || !statusElement || !syncButton || !previewPanel || !previewDetails || !previewRecords || !confirmButton || !cancelButton) return;
@@ -171,8 +172,48 @@
         }
     }
 
+    function addRecycleDeletionMarkers(markers, entry){
+        const put = (type, value) => {
+            if(value !== null && value !== undefined && String(value)) markers[`${type}:${String(value)}`] = true;
+        };
+        const payload = entry?.payload || {};
+        if(entry?.type === "task") put("task", payload.task?.id);
+        else if(entry?.type === "subject"){
+            const subject = payload.subject;
+            put("task_subject", subject?.id || `name:${normalizeSubjectName(subject?.name)}`);
+            (payload.tasks || []).forEach(task => put("task", task?.id));
+        }else if(entry?.type === "projectSubject"){
+            put("project_subject", payload.subject?.id);
+            (payload.topics || []).forEach(topic => put("project_topic", topic?.id));
+        }else if(entry?.type === "topic") (payload.topics || []).forEach(topic => put("project_topic", topic?.id));
+    }
+
+    function readLocalTombstones(){
+        let markers = {};
+        try{
+            const raw = workspace.storage.getItem(LOCAL_TOMBSTONES_KEY);
+            if(raw !== null){
+                markers = JSON.parse(raw);
+                if(!markers || typeof markers !== "object" || Array.isArray(markers) ||
+                    Object.values(markers).some(value => typeof value !== "boolean")) throw new Error("Invalid tombstone state.");
+            }
+            const recycleRaw = workspace.storage.getItem("ironMindRecycleBin");
+            if(recycleRaw !== null){
+                const entries = JSON.parse(recycleRaw);
+                if(!Array.isArray(entries)) throw new Error("Invalid Recycle Bin.");
+                entries.forEach(entry => addRecycleDeletionMarkers(markers, entry));
+            }
+            const result = new Map(Object.entries(markers));
+            result.needsPersist = raw !== null ? JSON.stringify(markers) !== raw : Object.keys(markers).length > 0;
+            return result;
+        }catch(error){
+            throw new SyncConflictError("Local deletion records or Recycle Bin are unreadable. Resolve that local data issue before syncing.");
+        }
+    }
+
     function makeLocalData(subjectRows, taskRows, settings, projectSubjectRows, projectTopicRows){
         const localSubjects = new Map();
+        const localSubjectsByName = new Map();
         if(!Array.isArray(subjectRows) || !Array.isArray(taskRows) || !Array.isArray(projectSubjectRows) || !Array.isArray(projectTopicRows)){
             throw new SyncConflictError("Local tasks or subjects are not in the expected format.");
         }
@@ -180,13 +221,18 @@
             if(!subject || typeof subject.name !== "string" || !subject.name.trim()){
                 throw new SyncConflictError("A local task subject is invalid; no data was changed.");
             }
-            const key = normalizeSubjectName(subject.name);
-            if(localSubjects.has(key)) throw new SyncConflictError("Local task subjects contain duplicate names; no data was changed.");
-            localSubjects.set(key, {
+            const nameKey = normalizeSubjectName(subject.name);
+            const key = isUuid(subject.id) ? subject.id : `legacy:${nameKey}`;
+            if(localSubjectsByName.has(nameKey) || localSubjects.has(key)) throw new SyncConflictError("Local task subjects contain duplicate names or IDs; no data was changed.");
+            const row = {
                 key,
+                id:isUuid(subject.id) ? subject.id : null,
+                nameKey,
                 canonical:{ name:subject.name, priority:String(subject.priority || "high") },
                 original:subject
-            });
+            };
+            localSubjects.set(key, row);
+            localSubjectsByName.set(nameKey, row);
         });
 
         const localTasks = new Map();
@@ -196,7 +242,7 @@
             }
             const key = String(task.id);
             if(localTasks.has(key)) throw new SyncConflictError("Local tasks contain duplicate IDs; no data was changed.");
-            const subject = localSubjects.get(normalizeSubjectName(task.subject));
+            const subject = localSubjectsByName.get(normalizeSubjectName(task.subject));
             if(!subject) throw new SyncConflictError("A local task refers to a missing subject; no data was changed.");
             if(!VALID_STATUSES.has(task.status)) throw new SyncConflictError("A local task has an unsupported status; no data was changed.");
             localTasks.set(key, {
@@ -273,6 +319,7 @@
         validateTopicSiblingOrder(localProjectTopics, "Local");
         return {
             subjects:localSubjects,
+            subjectsByName:localSubjectsByName,
             tasks:localTasks,
             settings,
             projectSubjects:localProjectSubjects,
@@ -305,13 +352,71 @@
         const localProjectTopics = Array.isArray(projectTopicRecords) ? projectTopicRecords : [];
         verifyStoredRows("ironMindProjectSubjects", localProjectSubjects, "Project subjects");
         verifyStoredRows("ironMindProjectTopics", localProjectTopics, "Project topics");
-        return makeLocalData(
+        const local = makeLocalData(
             localSubjects,
             localTasks,
             parseStoredSettings(),
             localProjectSubjects,
             localProjectTopics
         );
+        local.tombstones = readLocalTombstones();
+        local.changedTombstones = Boolean(local.tombstones.needsPersist);
+        return local;
+    }
+
+    function newSyncUuid(){
+        if(typeof window.crypto?.randomUUID !== "function") throw new SyncConflictError("Stable task-subject IDs are unavailable in this browser; no cloud records were changed.");
+        return window.crypto.randomUUID();
+    }
+
+    function alignTaskSubjectIds(local, cloud){
+        let changed = false;
+        const rows = [...local.subjects.values()].map(row => {
+            const namedCloudRow = cloud.subjectsByName.get(row.nameKey);
+            const id = namedCloudRow?.id || row.id || newSyncUuid();
+            if(row.original.id !== id) changed = true;
+            return { ...row.original, id };
+        });
+        const aligned = makeLocalData(
+            rows,
+            [...local.tasks.values()].map(row => row.original),
+            local.settings,
+            [...local.projectSubjects.values()].map(row => row.original),
+            [...local.projectTopics.values()].map(row => row.original)
+        );
+        aligned.tombstones = local.tombstones;
+        aligned.changedSubjects = changed;
+        return aligned;
+    }
+
+    function remapLegacyTaskSubjectBaseline(state, local, cloud){
+        if(!state?.baseline?.subjects || typeof state.baseline.subjects !== "object") return {};
+        const mapped = {};
+        for(const [key, value] of Object.entries(state.baseline.subjects)){
+            if(cloud.subjects.has(key) || isUuid(key)){
+                mapped[key] = value;
+                continue;
+            }
+            const match = cloud.subjectsByName.get(normalizeSubjectName(key)) || local.subjectsByName.get(normalizeSubjectName(key));
+            mapped[match?.id || key] = value;
+        }
+        return mapped;
+    }
+
+    function remapLegacySubjectTombstones(local, cloud){
+        const mapped = new Map();
+        let changed = false;
+        for(const [identity, deleted] of local.tombstones){
+            const prefix = "task_subject:name:";
+            if(identity.startsWith(prefix)){
+                const name = identity.slice(prefix.length);
+                const match = local.subjectsByName.get(normalizeSubjectName(name)) || cloud.subjectsByName.get(normalizeSubjectName(name));
+                if(match){ mapped.set(`task_subject:${match.id}`, deleted); changed = true; continue; }
+            }
+            mapped.set(identity, deleted);
+        }
+        local.tombstones = mapped;
+        local.changedTombstones = Boolean(local.changedTombstones || changed);
     }
 
     async function getVerifiedClient(){
@@ -359,38 +464,54 @@
     }
 
     async function readCloudData(client, userId){
-        const [subjectRows, taskRows, settingsResult, projectSubjectRows, projectTopicRows] = await Promise.all([
-            readAllRows(client, "task_subjects", "id,user_id,name,priority,revision", "id", userId),
-            readAllRows(client, "tasks", "id,user_id,subject_id,legacy_id,topic,source,task_date,status,remarks,revision", "id", userId),
+        const [subjectRows, taskRows, settingsResult, projectSubjectRows, projectTopicRows, tombstoneRows, syncStateResult, noteReferences, resourceReferences] = await Promise.all([
+            readAllRows(client, "task_subjects", "id,user_id,name,priority,revision,sync_generation", "id", userId),
+            readAllRows(client, "tasks", "id,user_id,subject_id,legacy_id,topic,source,task_date,status,remarks,revision,sync_generation", "id", userId),
             client.from("user_settings")
-                .select("user_id,settings,revision")
+                .select("user_id,settings,revision,sync_generation")
                 .eq("user_id", userId)
                 .limit(2),
-            readAllRows(client, "project_subjects", "id,user_id,name,priority,revision,created_at", ["created_at", "id"], userId),
-            readAllRows(client, "project_topics", "id,user_id,subject_id,parent_id,name,sort_order,revision", "id", userId)
+            readAllRows(client, "project_subjects", "id,user_id,name,priority,revision,created_at,sync_generation", ["created_at", "id"], userId),
+            readAllRows(client, "project_topics", "id,user_id,subject_id,parent_id,name,sort_order,revision,sync_generation", "id", userId),
+            readAllRows(client, "sync_tombstones", "user_id,entity_type,entity_key,is_deleted,revision,sync_generation", ["entity_type", "entity_key"], userId),
+            client.from("user_sync_state").select("user_id,reset_generation,revision").eq("user_id", userId).limit(2),
+            readAllRows(client, "notes", "id,user_id,subject_id,topic_id", "id", userId),
+            readAllRows(client, "resource_metadata", "id,user_id,subject_id,topic_id", "id", userId)
         ]);
         const settingsRows = checkedResult(settingsResult, "Cloud settings could not be read.") || [];
+        const syncStateRows = checkedResult(syncStateResult, "Cloud sync reset state could not be read.") || [];
         if(!Array.isArray(subjectRows) || !Array.isArray(taskRows) || !Array.isArray(settingsRows) || settingsRows.length > 1 ||
-            !Array.isArray(projectSubjectRows) || !Array.isArray(projectTopicRows)){
+            !Array.isArray(projectSubjectRows) || !Array.isArray(projectTopicRows) || !Array.isArray(tombstoneRows) ||
+            !Array.isArray(syncStateRows) || syncStateRows.length > 1 || !Array.isArray(noteReferences) || !Array.isArray(resourceReferences)){
             throw new SyncConflictError("The cloud returned an unexpected data shape; no local data was changed.");
+        }
+        const syncStateRow = syncStateRows.length ? syncStateRows[0] : null;
+        if(syncStateRow && (syncStateRow.user_id !== userId || !Number.isSafeInteger(Number(syncStateRow.reset_generation)) || Number(syncStateRow.reset_generation) < 0)){
+            throw new SyncConflictError("Cloud sync reset state could not be verified.");
+        }
+        const resetGeneration = syncStateRow ? Number(syncStateRow.reset_generation) : 0;
+        if(noteReferences.some(row => row.user_id !== userId) || resourceReferences.some(row => row.user_id !== userId)){
+            throw new SyncConflictError("Cloud Project dependencies could not be verified as belonging to this account.");
         }
 
         const cloudSubjects = new Map();
+        const cloudSubjectsByName = new Map();
         const subjectsById = new Map();
         subjectRows.forEach(subject => {
-            if(subject.user_id !== userId || !subject.id || typeof subject.name !== "string"){
+            if(subject.user_id !== userId || !subject.id || typeof subject.name !== "string" || Number(subject.sync_generation) !== resetGeneration){
                 throw new SyncConflictError("Cloud subject ownership or shape could not be verified.");
             }
-            const key = normalizeSubjectName(subject.name);
-            if(!key || cloudSubjects.has(key)) throw new SyncConflictError("Cloud task subjects contain a name conflict.");
-            const record = { key, id:subject.id, revision:Number(subject.revision), canonical:{ name:subject.name, priority:String(subject.priority || "high") } };
-            cloudSubjects.set(key, record);
+            const nameKey = normalizeSubjectName(subject.name);
+            if(!nameKey || !isUuid(subject.id) || cloudSubjects.has(subject.id) || cloudSubjectsByName.has(nameKey)) throw new SyncConflictError("Cloud task subjects contain an ID or name conflict.");
+            const record = { key:subject.id, id:subject.id, nameKey, revision:Number(subject.revision), canonical:{ name:subject.name, priority:String(subject.priority || "high") } };
+            cloudSubjects.set(subject.id, record);
+            cloudSubjectsByName.set(nameKey, record);
             subjectsById.set(subject.id, record);
         });
 
         const cloudTasks = new Map();
         taskRows.forEach(task => {
-            if(task.user_id !== userId || !task.id) throw new SyncConflictError("Cloud task ownership could not be verified.");
+            if(task.user_id !== userId || !task.id || Number(task.sync_generation) !== resetGeneration) throw new SyncConflictError("Cloud task ownership or reset generation could not be verified.");
             const subject = subjectsById.get(task.subject_id);
             if(!subject) throw new SyncConflictError("A cloud task refers to a missing subject; no data was changed.");
             const key = String(task.legacy_id || task.id);
@@ -400,6 +521,7 @@
                 key,
                 id:task.id,
                 legacyId:task.legacy_id ? String(task.legacy_id) : null,
+                subjectId:subject.id,
                 revision:Number(task.revision),
                 canonical:{
                     subject:subject.canonical.name,
@@ -412,7 +534,22 @@
             });
         });
 
+        const tombstones = new Map();
+        tombstoneRows.forEach(row => {
+            const type = String(row.entity_type || "");
+            const key = String(row.entity_key || "");
+            if(row.user_id !== userId || Number(row.sync_generation) !== resetGeneration || !["task", "task_subject", "project_subject", "project_topic"].includes(type) || !key || typeof row.is_deleted !== "boolean"){
+                throw new SyncConflictError("Cloud deletion markers have an invalid owner or shape.");
+            }
+            const identity = `${type}:${key}`;
+            if(tombstones.has(identity)) throw new SyncConflictError("Cloud deletion markers contain duplicate identities.");
+            tombstones.set(identity, { identity, type, key, deleted:row.is_deleted, revision:Number(row.revision) });
+        });
+
         const settingsRow = settingsRows.length ? settingsRows[0] : null;
+        if(settingsRow && Number(settingsRow.sync_generation) !== resetGeneration){
+            throw new SyncConflictError("Cloud settings belong to a previous account reset generation.");
+        }
         const settings = settingsRow ? settingsRow.settings : null;
         if(settingsRows.length && settingsRows[0].user_id !== userId){
             throw new SyncConflictError("Cloud settings ownership could not be verified.");
@@ -423,7 +560,7 @@
 
         const cloudProjectSubjects = new Map();
         projectSubjectRows.forEach(subject => {
-            if(subject.user_id !== userId || !isUuid(subject.id) || typeof subject.name !== "string" || !subject.name.trim()){
+            if(subject.user_id !== userId || Number(subject.sync_generation) !== resetGeneration || !isUuid(subject.id) || typeof subject.name !== "string" || !subject.name.trim()){
                 throw new SyncConflictError("Cloud Project subject ownership or shape could not be verified.");
             }
             if(cloudProjectSubjects.has(subject.id)) throw new SyncConflictError("Cloud Project subjects contain duplicate IDs.");
@@ -438,7 +575,7 @@
         const cloudProjectTopics = new Map();
         const topicNames = new Set();
         projectTopicRows.forEach(topic => {
-            if(topic.user_id !== userId || !isUuid(topic.id) || !isUuid(topic.subject_id) ||
+            if(topic.user_id !== userId || Number(topic.sync_generation) !== resetGeneration || !isUuid(topic.id) || !isUuid(topic.subject_id) ||
                 (topic.parent_id !== null && !isUuid(topic.parent_id)) || typeof topic.name !== "string" || !topic.name.trim() ||
                 !Number.isInteger(Number(topic.sort_order)) || Number(topic.sort_order) < 0){
                 throw new SyncConflictError("Cloud Project topic ownership or shape could not be verified.");
@@ -470,11 +607,15 @@
         validateTopicSiblingOrder(cloudProjectTopics, "Cloud");
         return {
             subjects:cloudSubjects,
+            subjectsByName:cloudSubjectsByName,
             tasks:cloudTasks,
             settings,
             settingsRevision:settingsRow ? Number(settingsRow.revision) : null,
             projectSubjects:cloudProjectSubjects,
-            projectTopics:cloudProjectTopics
+            projectTopics:cloudProjectTopics,
+            tombstones,
+            resetGeneration,
+            projectDependencies:[...noteReferences, ...resourceReferences]
         };
     }
 
@@ -624,7 +765,9 @@
             settings:local.settings,
             projectSubjects:projectSubjectsList,
             projectSubjectOrder:[...local.projectSubjects.keys()],
-            projectTopics:projectTopicsList
+            projectTopics:projectTopicsList,
+            tombstones:[...local.tombstones].sort(([a], [b]) => a.localeCompare(b)),
+            resetGeneration:Number(local.resetGeneration || 0)
         });
     }
 
@@ -788,6 +931,8 @@
         try{
             const state = JSON.parse(raw);
             if(state?.version !== 1 || !state.userId || !state.baseline) throw new Error("Invalid checkpoint.");
+            if(state.resetGeneration === undefined) state.resetGeneration = 0;
+            if(!state.baseline.tombstones) state.baseline.tombstones = {};
             return state;
         }catch(error){
             throw new SyncConflictError("The local sync checkpoint is unreadable. No cloud or task data was changed.");
@@ -809,6 +954,7 @@
         return {
             version:1,
             userId,
+            resetGeneration:Number(cloud.resetGeneration || 0),
             syncedAt:new Date().toISOString(),
             baseline:{
                 subjects:await signatures(cloud.subjects),
@@ -816,7 +962,8 @@
                 settings:await settingsSignature(cloud.settings),
                 projectSubjects:await signatures(cloud.projectSubjects),
                 projectTopics:await signatures(cloud.projectTopics),
-                projectTopicOrders:projectTopicOrderSignatures(cloud.projectTopics)
+                projectTopicOrders:projectTopicOrderSignatures(cloud.projectTopics),
+                tombstones:Object.fromEntries([...cloud.tombstones].map(([key, row]) => [key, row.deleted]))
             }
         };
     }
@@ -825,21 +972,24 @@
         return {
             version:1,
             userId,
+            resetGeneration:Number(cloud.resetGeneration || previousState.resetGeneration || 0),
             syncedAt:new Date().toISOString(),
             baseline:{
                 ...previousState.baseline,
                 projectSubjects:await signatures(cloud.projectSubjects),
                 projectTopics:await signatures(cloud.projectTopics),
-                projectTopicOrders:projectTopicOrderSignatures(cloud.projectTopics)
+                projectTopicOrders:projectTopicOrderSignatures(cloud.projectTopics),
+                tombstones:Object.fromEntries([...cloud.tombstones].map(([key, row]) => [key, row.deleted]))
             }
         };
     }
 
-    function emptySyncState(userId){
+    function emptySyncState(userId, resetGeneration = 0){
         return {
             version:1,
             userId,
-            baseline:{ subjects:{}, tasks:{}, settings:null }
+            resetGeneration,
+            baseline:{ subjects:{}, tasks:{}, settings:null, tombstones:{} }
         };
     }
 
@@ -847,10 +997,12 @@
         return {
             version:1,
             userId,
+            resetGeneration:Number(cloud.resetGeneration || 0),
             baseline:{
                 subjects:await signatures(cloud.subjects),
                 tasks:await signatures(cloud.tasks),
-                settings:await settingsSignature(cloud.settings)
+                settings:await settingsSignature(cloud.settings),
+                tombstones:Object.fromEntries([...cloud.tombstones].map(([key, row]) => [key, row.deleted]))
             }
         };
     }
@@ -941,6 +1093,131 @@
         return plan;
     }
 
+    function recordsForDeletion(data, type){
+        if(type === "task_subject") return data.subjects;
+        if(type === "task") return data.tasks;
+        if(type === "project_subject") return data.projectSubjects;
+        return data.projectTopics;
+    }
+
+    function baselineForDeletion(state, type){
+        if(type === "task_subject") return state.baseline.subjects || {};
+        if(type === "task") return state.baseline.tasks || {};
+        if(type === "project_subject") return state.baseline.projectSubjects || {};
+        return state.baseline.projectTopics || {};
+    }
+
+    function deleteIdentityParts(identity){
+        const separator = identity.indexOf(":");
+        if(separator <= 0) throw new SyncConflictError("A local deletion record has an invalid identity.");
+        return [identity.slice(0, separator), identity.slice(separator + 1)];
+    }
+
+    async function prepareDeletionPlan(local, cloud, state){
+        const baselineTombstones = state.baseline.tombstones || {};
+        const identities = new Set([
+            ...local.tombstones.keys(),
+            ...cloud.tombstones.keys(),
+            ...Object.keys(baselineTombstones)
+        ]);
+        const desired = new Map();
+        const cloudDeletes = [];
+        const localChanges = { subjects:false, tasks:false, projectSubjects:false, projectTopics:false };
+
+        for(const identity of identities){
+            const [type, key] = deleteIdentityParts(identity);
+            if(!["task", "task_subject", "project_subject", "project_topic"].includes(type)){
+                throw new SyncConflictError("A deletion record refers to an unsupported app record.");
+            }
+            const hasLocalMark = local.tombstones.has(identity);
+            const hasCloudMark = cloud.tombstones.has(identity);
+            const localState = hasLocalMark ? local.tombstones.get(identity) : undefined;
+            const cloudMark = cloud.tombstones.get(identity);
+            const cloudState = cloudMark?.deleted;
+            const baseState = Object.prototype.hasOwnProperty.call(baselineTombstones, identity) ? baselineTombstones[identity] : undefined;
+            if(localState === false && baseState === undefined && !hasCloudMark){
+                local.tombstones.delete(identity);
+                local.changedTombstones = true;
+                continue;
+            }
+            const localChanged = hasLocalMark && localState !== baseState;
+            const cloudChanged = hasCloudMark && cloudState !== baseState;
+            if(localChanged && cloudChanged && localState !== cloudState){
+                throw new SyncConflictError(`Deletion and restoration of ${type} ${key} happened independently on both devices. Review the copies before syncing.`);
+            }
+            const stateValue = localChanged ? localState : cloudChanged ? cloudState :
+                baseState !== undefined ? baseState : hasLocalMark ? localState : hasCloudMark ? cloudState : undefined;
+            if(stateValue === undefined) continue;
+
+            const localMap = recordsForDeletion(local, type);
+            const cloudMap = recordsForDeletion(cloud, type);
+            const localRecord = localMap.get(key);
+            const cloudRecord = cloudMap.get(key);
+            const baselineRecords = baselineForDeletion(state, type);
+            const baselineSignature = baselineRecords[key];
+            if(stateValue){
+                for(const [label, record] of [["local", localRecord], ["cloud", cloudRecord]]){
+                    if(!record) continue;
+                    if(!baselineSignature || await signature(record.canonical) !== baselineSignature){
+                        throw new SyncConflictError(`A deletion of ${type} ${key} conflicts with a newer ${label} edit. Neither copy was changed.`);
+                    }
+                }
+                if(localRecord){
+                    localMap.delete(key);
+                    if(type === "task_subject") localChanges.subjects = true;
+                    else if(type === "task") localChanges.tasks = true;
+                    else if(type === "project_subject") localChanges.projectSubjects = true;
+                    else localChanges.projectTopics = true;
+                }
+                if(cloudRecord){
+                    cloudMap.delete(key);
+                    cloudDeletes.push({ type, key, record:cloudRecord });
+                }
+                if(!hasLocalMark || localState !== true){ local.tombstones.set(identity, true); local.changedTombstones = true; }
+                desired.set(identity, true);
+                delete baselineRecords[key];
+                if(type === "project_topic"){
+                    for(const group of Object.values(state.baseline.projectTopicOrders || {})){
+                        const index = group.indexOf(key);
+                        if(index >= 0) group.splice(index, 1);
+                    }
+                }
+            }else{
+                if(!localRecord && !cloudRecord){
+                    throw new SyncConflictError(`A restore marker exists for ${type} ${key}, but neither copy contains that record.`);
+                }
+                if(hasLocalMark && localState === false && !localRecord){
+                    throw new SyncConflictError(`The restored local ${type} ${key} is missing. No data was changed.`);
+                }
+                if(hasCloudMark && cloudState === false && !cloudRecord && !localRecord){
+                    throw new SyncConflictError(`The restored cloud ${type} ${key} is missing. No data was changed.`);
+                }
+                if(!hasLocalMark || localState !== false){ local.tombstones.set(identity, false); local.changedTombstones = true; }
+                desired.set(identity, false);
+            }
+        }
+
+        const deletedTaskIds = new Set([...desired].filter(([identity, value]) => identity.startsWith("task:") && value).map(([identity]) => identity));
+        for(const [identity, value] of desired){
+            if(!value || !identity.startsWith("task_subject:")) continue;
+            const subjectId = identity.slice("task_subject:".length);
+            const activeChildren = [...cloud.tasks.values()].filter(task => task.subjectId === subjectId && !deletedTaskIds.has(`task:${task.key}`));
+            if(activeChildren.length) throw new SyncConflictError(`Task subject ${subjectId} still has cloud tasks without confirmed deletion records. Neither dataset was changed.`);
+        }
+        for(const [identity, value] of desired){
+            if(!value || !(identity.startsWith("project_subject:") || identity.startsWith("project_topic:"))) continue;
+            const [, key] = deleteIdentityParts(identity);
+            const referenced = (cloud.projectDependencies || []).some(row =>
+                row.subject_id === key && identity.startsWith("project_subject:") ||
+                row.topic_id === key && identity.startsWith("project_topic:"));
+            if(referenced) throw new SyncConflictError("Project deletion is paused because cloud notes or file metadata still reference it. Notes and files are not part of this sync phase.");
+        }
+
+        const hasChanges = cloudDeletes.length > 0 || Boolean(local.changedTombstones) || [...desired].some(([identity, value]) =>
+            !local.tombstones.has(identity) || local.tombstones.get(identity) !== value || cloud.tombstones.get(identity)?.deleted !== value);
+        return { desired, cloudDeletes, localChanges, hasChanges };
+    }
+
     async function sameProjectMaps(left, right){
         return await projectMapsSubset(left.projectSubjects, right.projectSubjects) &&
             await projectMapsSubset(left.projectTopics, right.projectTopics);
@@ -971,16 +1248,16 @@
         const subjectRows = [...local.subjects.values()].map(row => row.original);
         for(const key of plan.subjects.pull){
             const remote = cloud.subjects.get(key).canonical;
-            const index = subjectRows.findIndex(item => normalizeSubjectName(item.name) === key);
+            const index = subjectRows.findIndex(item => item.id === key);
             if(index >= 0) subjectRows[index] = { ...subjectRows[index], name:remote.name, priority:remote.priority };
-            else subjectRows.push({ name:remote.name, priority:remote.priority });
+            else subjectRows.push({ id:key, name:remote.name, priority:remote.priority });
         }
-        const finalSubjects = new Map(subjectRows.map(subject => [normalizeSubjectName(subject.name), subject]));
+        const finalSubjects = new Map(subjectRows.map(subject => [subject.id, subject]));
 
         const taskRows = [...local.tasks.values()].map(row => row.original);
         for(const key of plan.tasks.pull){
             const remote = cloud.tasks.get(key).canonical;
-            const subject = finalSubjects.get(normalizeSubjectName(remote.subject));
+            const subject = finalSubjects.get(remote.subjectId) || subjectRows.find(item => normalizeSubjectName(item.name) === normalizeSubjectName(remote.subject));
             if(!subject) throw new SyncConflictError("A cloud task refers to a subject that is not available locally.");
             const index = taskRows.findIndex(task => String(task.id) === key);
             const taskPatch = {
@@ -1000,8 +1277,10 @@
             subjects:subjectRows,
             tasks:taskRows,
             settings,
-            changedSubjects:plan.subjects.pull.size > 0,
-            changedTasks:plan.tasks.pull.size > 0,
+            tombstones:local.tombstones,
+            changedTombstones:Boolean(local.changedTombstones),
+            changedSubjects:plan.subjects.pull.size > 0 || Boolean(local.deletionChanges?.subjects),
+            changedTasks:plan.tasks.pull.size > 0 || Boolean(local.deletionChanges?.tasks),
             changedSettings:plan.settings.pull,
             ...projects
         };
@@ -1052,14 +1331,91 @@
         return {
             projectSubjects:orderedSubjects,
             projectTopics:projectTopicRows,
-            changedProjectSubjects:plan.projectSubjects.pull.size > 0 || projectSubjectOrderChanged(projectSubjectRows, orderedSubjects),
-            changedProjectTopics:plan.projectTopics.pull.size > 0
+            changedProjectSubjects:plan.projectSubjects.pull.size > 0 || projectSubjectOrderChanged(projectSubjectRows, orderedSubjects) || Boolean(local.deletionChanges?.projectSubjects),
+            changedProjectTopics:plan.projectTopics.pull.size > 0 || Boolean(local.deletionChanges?.projectTopics)
         };
     }
 
     function ensureCloudSuccess(result, message){
         if(result.error) throw new Error(message);
         return result.data;
+    }
+
+    async function syncTombstonesAndDeleteRows(client, userId, authGeneration, resetGeneration, cloud, deletionPlan, operation){
+        for(const [identity, deleted] of deletionPlan.desired){
+            assertOperationIdentity(userId, authGeneration);
+            const [type, key] = deleteIdentityParts(identity);
+            const existing = cloud.tombstones.get(identity);
+            if(existing?.deleted === deleted) continue;
+            operation.writesStarted = true;
+            if(existing){
+                const result = await client.from("sync_tombstones")
+                    .update({ is_deleted:deleted, sync_generation:resetGeneration })
+                    .eq("user_id", userId)
+                    .eq("entity_type", type)
+                    .eq("entity_key", key)
+                    .eq("revision", existing.revision)
+                    .eq("sync_generation", resetGeneration)
+                    .select("user_id,entity_type,entity_key,is_deleted,revision")
+                    .maybeSingle();
+                const updated = ensureCloudSuccess(result, "A sync deletion marker could not be saved.");
+                if(!updated) throw new SyncConflictError("A deletion marker changed in the cloud during sync. Retry to review the current state.");
+                cloud.tombstones.set(identity, { identity, type, key, deleted, revision:Number(updated.revision) });
+            }else{
+                const result = await client.from("sync_tombstones")
+                    .insert({ user_id:userId, entity_type:type, entity_key:key, is_deleted:deleted, sync_generation:resetGeneration })
+                    .select("user_id,entity_type,entity_key,is_deleted,revision")
+                    .single();
+                const inserted = ensureCloudSuccess(result, "A sync deletion marker could not be saved.");
+                cloud.tombstones.set(identity, { identity, type, key, deleted, revision:Number(inserted.revision) });
+            }
+        }
+
+        const deletingTopics = new Map(deletionPlan.cloudDeletes.filter(item => item.type === "project_topic").map(item => [item.key, item.record]));
+        const topicDepth = (row, visiting = new Set()) => {
+            const parentId = row.canonical?.parentId;
+            if(!parentId) return 0;
+            if(visiting.has(row.id)) throw new SyncConflictError("Cloud Project topic deletion contains a parent cycle.");
+            visiting.add(row.id);
+            const parent = deletingTopics.get(parentId) || cloud.projectTopics.get(parentId);
+            const depth = parent ? 1 + topicDepth(parent, visiting) : 0;
+            visiting.delete(row.id);
+            return depth;
+        };
+        const typeOrder = { task:0, project_topic:1, task_subject:2, project_subject:3 };
+        const orderedDeletes = deletionPlan.cloudDeletes.slice().sort((left, right) => {
+            const typeDelta = typeOrder[left.type] - typeOrder[right.type];
+            if(typeDelta) return typeDelta;
+            if(left.type === "project_topic") return topicDepth(right.record) - topicDepth(left.record);
+            return String(left.key).localeCompare(String(right.key));
+        });
+        for(const item of orderedDeletes){
+            assertOperationIdentity(userId, authGeneration);
+            const table = item.type === "task" ? "tasks"
+                : item.type === "task_subject" ? "task_subjects"
+                : item.type === "project_subject" ? "project_subjects" : "project_topics";
+            operation.writesStarted = true;
+            const result = await client.from(table).delete()
+                .eq("user_id", userId)
+                .eq("id", item.record.id)
+                .eq("revision", item.record.revision)
+                .eq("sync_generation", resetGeneration)
+                .select("id")
+                .maybeSingle();
+            const removed = ensureCloudSuccess(result, `A deleted ${item.type.replaceAll("_", " ")} could not be removed from the cloud.`);
+            if(!removed) throw new SyncConflictError(`A ${item.type.replaceAll("_", " ")} changed in the cloud during deletion. No further writes were sent.`);
+        }
+    }
+
+    function deletionPlanMatchesCloud(plan, cloud){
+        for(const [identity, deleted] of plan.desired){
+            if(cloud.tombstones.get(identity)?.deleted !== deleted) return false;
+        }
+        for(const item of plan.cloudDeletes){
+            const map = recordsForDeletion(cloud, item.type);
+            if(map.has(item.key)) return false;
+        }
+        return true;
     }
 
     function orderedProjectTopicKeys(keys, topics){
@@ -1082,16 +1438,17 @@
         });
     }
 
-    async function pushChanges(client, userId, generation, finalLocal, cloud, plan, operation){
+    async function pushChanges(client, userId, authGeneration, resetGeneration, finalLocal, cloud, plan, operation){
         validateProjectNameCollisions(finalLocal, cloud);
+        if(plan.deletionPlan) await syncTombstonesAndDeleteRows(client, userId, authGeneration, resetGeneration, cloud, plan.deletionPlan, operation);
         for(const key of plan.projectSubjects.push){
-            assertOperationIdentity(userId, generation);
+            assertOperationIdentity(userId, authGeneration);
             const localRecord = finalLocal.projectSubjects.get(key);
             const existing = cloud.projectSubjects.get(key);
             if(existing){
                 operation.writesStarted = true;
                 const result = await client.from("project_subjects")
-                    .update({ name:localRecord.canonical.name, priority:localRecord.canonical.priority })
+                    .update({ name:localRecord.canonical.name, priority:localRecord.canonical.priority, sync_generation:resetGeneration })
                     .eq("user_id", userId)
                     .eq("id", existing.id)
                     .eq("revision", existing.revision)
@@ -1104,7 +1461,7 @@
             }else{
                 operation.writesStarted = true;
                 const result = await client.from("project_subjects")
-                    .insert({ id:localRecord.id, user_id:userId, name:localRecord.canonical.name, priority:localRecord.canonical.priority })
+                    .insert({ id:localRecord.id, user_id:userId, name:localRecord.canonical.name, priority:localRecord.canonical.priority, sync_generation:resetGeneration })
                     .select("id,user_id,name,priority,revision,created_at")
                     .single();
                 const inserted = ensureCloudSuccess(result, "A Project subject could not be synchronized.");
@@ -1119,7 +1476,7 @@
         }
 
         for(const key of orderedProjectTopicKeys(plan.projectTopics.push, finalLocal.projectTopics)){
-            assertOperationIdentity(userId, generation);
+            assertOperationIdentity(userId, authGeneration);
             const localRecord = finalLocal.projectTopics.get(key);
             const existing = cloud.projectTopics.get(key);
             if(!cloud.projectSubjects.has(localRecord.canonical.subjectId) ||
@@ -1131,7 +1488,8 @@
                 subject_id:localRecord.canonical.subjectId,
                 parent_id:localRecord.canonical.parentId,
                 name:localRecord.canonical.name,
-                sort_order:localRecord.canonical.order
+                sort_order:localRecord.canonical.order,
+                sync_generation:resetGeneration
             };
             if(existing){
                 operation.writesStarted = true;
@@ -1168,44 +1526,50 @@
         }
 
         for(const key of plan.subjects.push){
-            assertOperationIdentity(userId, generation);
+            assertOperationIdentity(userId, authGeneration);
             const localRecord = finalLocal.subjects.get(key);
             const existing = cloud.subjects.get(key);
             if(existing){
                 operation.writesStarted = true;
                 const result = await client.from("task_subjects")
-                    .update({ name:localRecord.canonical.name, priority:localRecord.canonical.priority })
+                    .update({ name:localRecord.canonical.name, priority:localRecord.canonical.priority, sync_generation:resetGeneration })
                     .eq("user_id", userId)
                     .eq("id", existing.id)
                     .eq("revision", existing.revision)
-                    .select("id,revision")
+                    .select("id,user_id,name,priority,revision")
                     .maybeSingle();
                 const updated = ensureCloudSuccess(result, "A task subject could not be synchronized.");
                 if(!updated) throw new SyncConflictError("A task subject changed in the cloud during sync. No further writes were sent.");
+                cloud.subjectsByName.delete(existing.nameKey);
                 existing.revision = Number(updated.revision);
+                existing.nameKey = normalizeSubjectName(updated.name);
                 existing.canonical = { ...localRecord.canonical };
+                cloud.subjectsByName.set(existing.nameKey, existing);
             }else{
-                assertOperationIdentity(userId, generation);
+                assertOperationIdentity(userId, authGeneration);
                 operation.writesStarted = true;
                 const result = await client.from("task_subjects")
-                    .insert({ user_id:userId, name:localRecord.canonical.name, priority:localRecord.canonical.priority })
+                    .insert({ id:localRecord.id, user_id:userId, name:localRecord.canonical.name, priority:localRecord.canonical.priority, sync_generation:resetGeneration })
                     .select("id,user_id,name,priority,revision")
                     .single();
                 const inserted = ensureCloudSuccess(result, "A task subject could not be synchronized.");
-                cloud.subjects.set(key, {
-                    key,
+                const insertedSubject = {
+                    key:inserted.id,
+                    nameKey:normalizeSubjectName(inserted.name),
                     id:inserted.id,
                     revision:Number(inserted.revision),
                     canonical:{ name:inserted.name, priority:String(inserted.priority || "high") }
-                });
+                };
+                cloud.subjects.set(key, insertedSubject);
+                cloud.subjectsByName.set(insertedSubject.nameKey, insertedSubject);
             }
         }
 
         const taskInserts = [];
         for(const key of plan.tasks.push){
-            assertOperationIdentity(userId, generation);
+            assertOperationIdentity(userId, authGeneration);
             const localRecord = finalLocal.tasks.get(key);
-            const subject = cloud.subjects.get(normalizeSubjectName(localRecord.canonical.subject));
+            const subject = cloud.subjectsByName.get(normalizeSubjectName(localRecord.canonical.subject));
             if(!subject) throw new SyncConflictError("A task subject could not be resolved; no task was uploaded.");
             const existing = cloud.tasks.get(key);
             const record = {
@@ -1216,7 +1580,8 @@
                 source:localRecord.canonical.source,
                 task_date:localRecord.canonical.task_date,
                 status:localRecord.canonical.status,
-                remarks:localRecord.canonical.remarks
+                remarks:localRecord.canonical.remarks,
+                sync_generation:resetGeneration
             };
             if(existing){
                 operation.writesStarted = true;
@@ -1237,18 +1602,18 @@
             }
         }
         for(let offset = 0; offset < taskInserts.length; offset += 100){
-            assertOperationIdentity(userId, generation);
+            assertOperationIdentity(userId, authGeneration);
             operation.writesStarted = true;
             const result = await client.from("tasks").insert(taskInserts.slice(offset, offset + 100));
             ensureCloudSuccess(result, "A task could not be synchronized.");
         }
 
         if(plan.settings.push){
-            assertOperationIdentity(userId, generation);
+            assertOperationIdentity(userId, authGeneration);
             if(cloud.settingsRevision !== null){
                 operation.writesStarted = true;
                 const result = await client.from("user_settings")
-                    .update({ settings:finalLocal.settings })
+                    .update({ settings:finalLocal.settings, sync_generation:resetGeneration })
                     .eq("user_id", userId)
                     .eq("revision", cloud.settingsRevision)
                     .select("user_id,revision")
@@ -1259,7 +1624,7 @@
             }else{
                 operation.writesStarted = true;
                 const result = await client.from("user_settings")
-                    .insert({ user_id:userId, settings:finalLocal.settings });
+                    .insert({ user_id:userId, settings:finalLocal.settings, sync_generation:resetGeneration });
                 ensureCloudSuccess(result, "Settings could not be synchronized.");
             }
         }
@@ -1268,6 +1633,7 @@
     async function persistResult(local, state){
         const storage = workspace.storage;
         const updates = [[SYNC_STATE_KEY, JSON.stringify(state)]];
+        if(local.changedTombstones) updates.push([LOCAL_TOMBSTONES_KEY, JSON.stringify(Object.fromEntries(local.tombstones || new Map()))]);
         if(local.changedSubjects) updates.push(["ironMindSubjects", JSON.stringify(local.subjects)]);
         if(local.changedTasks) updates.push(["ironMindTasks", JSON.stringify(local.tasks)]);
         if(local.changedSettings) updates.push(["ironMindSettings", JSON.stringify(local.settings)]);
@@ -1354,6 +1720,18 @@
         if(!localHas && !cloudHas){
             pendingUpload = null;
             previewPanel.classList.add("hidden");
+            if(cloud.resetGeneration > 0){
+                const state = await makeState(userId, cloud);
+                assertOperationIdentity(userId, generation);
+                await assertLocalUnchanged(localFingerprint);
+                await persistResult({
+                    subjects:[], tasks:[], settings:null, projectSubjects:[], projectTopics:[],
+                    changedSubjects:false, changedTasks:false, changedSettings:false,
+                    changedProjectSubjects:false, changedProjectTopics:false
+                }, state);
+                setStatus("synced", "This clean account workspace is ready. New data will sync from this reset generation.");
+                return;
+            }
             setStatus("idle", "Not synced. There are no tasks, task subjects, Project subjects/topics, or saved settings to sync yet.");
             return;
         }
@@ -1485,7 +1863,7 @@
                 throw new SyncConflictError("Local data changed after the preview. Run Sync now to review a fresh preview.");
             }
             assertPreviewActive(preview);
-            const cloud = await readCloudData(client, userId);
+            let cloud = await readCloudData(client, userId);
             assertOperationIdentity(userId, generation);
             assertPreviewActive(preview);
             const latestLocal = readLocalData();
@@ -1566,6 +1944,8 @@
                 subjects:[...uploadLocal.subjects.values()].map(row => row.original),
                 tasks:[...uploadLocal.tasks.values()].map(row => row.original),
                 settings:uploadLocal.settings,
+                tombstones:uploadLocal.tombstones,
+                changedTombstones:Boolean(uploadLocal.changedTombstones),
                 projectSubjects:[...uploadLocal.projectSubjects.values()].map(row => row.original),
                 projectTopics:[...uploadLocal.projectTopics.values()].map(row => row.original),
                 changedSubjects:false,
@@ -1588,7 +1968,7 @@
             const finalSnapshot = makeLocalData(finalLocal.subjects, finalLocal.tasks, finalLocal.settings, finalLocal.projectSubjects, finalLocal.projectTopics);
             await assertLocalUnchanged(preview.fingerprint);
             assertPreviewActive(preview);
-            await pushChanges(client, userId, generation, finalSnapshot, cloud, plan, operation);
+            await pushChanges(client, userId, generation, cloud.resetGeneration, finalSnapshot, cloud, plan, operation);
             assertOperationIdentity(userId, generation);
             assertPreviewActive(preview);
             const verifiedCloud = await readCloudData(client, userId);
@@ -1643,15 +2023,63 @@
         try{
             const { client, userId, generation } = await getVerifiedClient();
             let local = readLocalData();
-            const localFingerprint = await datasetFingerprint(local);
-            const cloud = await readCloudData(client, userId);
+            let localFingerprint = await datasetFingerprint(local);
+            let cloud = await readCloudData(client, userId);
             assertOperationIdentity(userId, generation);
             local = readLocalData();
             if(await datasetFingerprint(local) !== localFingerprint){
                 throw new SyncConflictError("Local data changed while the cloud was being checked. No local values were overwritten; run Sync now again.");
             }
-            const state = readState();
+            let state = readState();
+            if(state && state.resetGeneration !== cloud.resetGeneration){
+                throw new SyncConflictError("This account was cleared on another device. To prevent old offline records from returning, explicitly use Delete All Data on this device to clear its local account workspace before syncing.");
+            }
+            if(!state && cloud.resetGeneration > 0 && mapHasRecords(local)){
+                throw new SyncConflictError("This account has a confirmed clean reset, but this device has no matching checkpoint. Export anything you still need, then explicitly use Delete All Data on this device before syncing.");
+            }
+            if(state?.requireInitialUploadConfirmation && mapHasRecords(local)){
+                showFirstUploadPreview(local, cloud, userId, "all", { checkpoint:state });
+                return;
+            }
+
+            local = alignTaskSubjectIds(local, cloud);
+            if(local.changedSubjects){
+                const subjectRows = [...local.subjects.values()].map(row => row.original);
+                workspace.storage.setItem("ironMindSubjects", JSON.stringify(subjectRows));
+                subjects = subjectRows;
+                local = readLocalData();
+                localFingerprint = await datasetFingerprint(local);
+            }
+            remapLegacySubjectTombstones(local, cloud);
             if(!state){
+                const emptyState = emptySyncState(userId, cloud.resetGeneration);
+                const deletionPlan = await prepareDeletionPlan(local, cloud, emptyState);
+                if(deletionPlan.hasChanges){
+                    if(deletionPlan.cloudDeletes.length) throw new SyncConflictError("This device has deletion records but no shared sync baseline. The current copies were kept unchanged; reconcile or explicitly clear the workspace before syncing.");
+                    await syncTombstonesAndDeleteRows(client, userId, generation, cloud.resetGeneration, cloud, deletionPlan, operation);
+                    cloud = await readCloudData(client, userId);
+                    assertOperationIdentity(userId, generation);
+                    if(!deletionPlanMatchesCloud(deletionPlan, cloud)) throw new SyncConflictError("The deletion records could not be verified in the cloud. No app records were copied.");
+                    if(mapHasRecords(local) || mapHasRecords(cloud)){
+                        if(deletionPlan.cloudDeletes.length) throw new SyncConflictError("This device has an unresolved deletion without a shared baseline.");
+                    }else{
+                    const verified = await readCloudData(client, userId);
+                    assertOperationIdentity(userId, generation);
+                    if(verified.resetGeneration !== cloud.resetGeneration || !deletionPlanMatchesCloud(deletionPlan, verified)){
+                        throw new SyncConflictError("The confirmed deletion did not match the latest cloud state. Run Sync now to review the account before retrying.");
+                    }
+                    const nextState = await makeState(userId, verified);
+                    await assertLocalUnchanged(localFingerprint);
+                    await persistResult({
+                        subjects:[], tasks:[], settings:local.settings, projectSubjects:[], projectTopics:[],
+                        tombstones:local.tombstones, changedTombstones:local.changedTombstones,
+                        changedSubjects:false, changedTasks:false, changedSettings:false,
+                        changedProjectSubjects:false, changedProjectTopics:false
+                    }, nextState);
+                    setStatus("synced", "Deletion records were saved. The account’s active records remain protected until their changes reconcile.");
+                    return;
+                    }
+                }
                 const hasProjectData = mapHasProjectRecords(local) || mapHasProjectRecords(cloud);
                 if(hasProjectData && await sameTaskAndSettingsData(local, cloud)){
                     const initialState = await makeProjectStartingState(userId, cloud);
@@ -1664,12 +2092,49 @@
             if(state.userId !== userId){
                 throw new SyncConflictError("The local sync checkpoint belongs to a different account. No data was changed.");
             }
+            const taskSubjectBaseline = remapLegacyTaskSubjectBaseline(state, local, cloud);
+            const syncState = { ...state, baseline:{ ...state.baseline, subjects:taskSubjectBaseline } };
+            const deletionPlan = await prepareDeletionPlan(local, cloud, syncState);
+            local.deletionChanges = deletionPlan.localChanges;
+            if(deletionPlan.hasChanges){
+                if(!hasProjectBaseline(state)){
+                    await syncTombstonesAndDeleteRows(client, userId, generation, cloud.resetGeneration, cloud, deletionPlan, operation);
+                    const verifiedCloud = await readCloudData(client, userId);
+                    assertOperationIdentity(userId, generation);
+                    if(verifiedCloud.resetGeneration !== cloud.resetGeneration || !deletionPlanMatchesCloud(deletionPlan, verifiedCloud)){
+                        throw new SyncConflictError("The deletion state changed during sync. Run Sync now to review the current account state.");
+                    }
+                    const updatedState = {
+                        ...state,
+                        resetGeneration:verifiedCloud.resetGeneration,
+                        syncedAt:new Date().toISOString(),
+                        baseline:{
+                            ...state.baseline,
+                            tombstones:Object.fromEntries([...verifiedCloud.tombstones].map(([key, row]) => [key, row.deleted]))
+                        }
+                    };
+                    await assertLocalUnchanged(localFingerprint);
+                    await persistResult({
+                        subjects:[...local.subjects.values()].map(row => row.original),
+                        tasks:[...local.tasks.values()].map(row => row.original),
+                        settings:local.settings,
+                        projectSubjects:[...local.projectSubjects.values()].map(row => row.original),
+                        projectTopics:[...local.projectTopics.values()].map(row => row.original),
+                        tombstones:local.tombstones, changedTombstones:local.changedTombstones,
+                        changedSubjects:local.deletionChanges.subjects, changedTasks:local.deletionChanges.tasks,
+                        changedSettings:false, changedProjectSubjects:local.deletionChanges.projectSubjects,
+                        changedProjectTopics:local.deletionChanges.projectTopics
+                    }, updatedState);
+                    setStatus("synced", "Confirmed deletions were synchronized. Run Sync now again to check remaining changes.");
+                    return;
+                }
+            }
             if(!hasProjectBaseline(state)){
                 await processFirstProjectSync(client, userId, generation, local, localFingerprint, cloud, state);
                 return;
             }
             validateProjectNameCollisions(local, cloud);
-            const subjectsPlan = await classifyRecords("subject", local.subjects, cloud.subjects, state.baseline.subjects);
+            const subjectsPlan = await classifyRecords("subject", local.subjects, cloud.subjects, taskSubjectBaseline);
             const tasksPlan = await classifyRecords("task", local.tasks, cloud.tasks, state.baseline.tasks);
             const settingsPlan = await classifySettings(local.settings, cloud.settings, state.baseline.settings);
             let projectSubjectsPlan, projectTopicsPlan;
@@ -1689,16 +2154,20 @@
                 tasks:tasksPlan,
                 settings:settingsPlan,
                 projectSubjects:projectSubjectsPlan,
-                projectTopics:projectTopicsPlan
+                projectTopics:projectTopicsPlan,
+                deletionPlan
             };
             const finalLocal = applyPulls(local, cloud, plan);
             const finalSnapshot = makeLocalData(finalLocal.subjects, finalLocal.tasks, finalLocal.settings, finalLocal.projectSubjects, finalLocal.projectTopics);
             await assertLocalUnchanged(localFingerprint);
-            await pushChanges(client, userId, generation, finalSnapshot, cloud, plan, operation);
+            await pushChanges(client, userId, generation, cloud.resetGeneration, finalSnapshot, cloud, plan, operation);
             assertOperationIdentity(userId, generation);
             await assertLocalUnchanged(localFingerprint);
             const verifiedCloud = await readCloudData(client, userId);
             assertOperationIdentity(userId, generation);
+            if(verifiedCloud.resetGeneration !== cloud.resetGeneration || !deletionPlanMatchesCloud(deletionPlan, verifiedCloud)){
+                throw new SyncConflictError("The deletion state changed during sync. Run Sync now to review the current account state.");
+            }
             if(!await localMatchesCloud(finalSnapshot, verifiedCloud)){
                 throw new SyncConflictError("Data changed during sync and could not be reconciled. Review both copies before retrying.");
             }
@@ -1739,8 +2208,47 @@
             setStatus("offline", `Offline. Local data remains available.${followUp}`);
             return;
         }
-        setStatus("failed", "Sync failed. Local data was preserved and no cloud records were deleted. Some confirmed writes may have reached the cloud; Sync now is safe to retry.");
+        setStatus("failed", "Sync failed. Local data was preserved. Approved updates or deletions may have reached the cloud; Sync now is safe to retry.");
     }
+
+    async function deleteAllAccountData(){
+        if(busy) throw new Error("A cloud operation is already running. Retry Delete All Data afterward.");
+        if(!canUseAccountWorkspace() || navigator.onLine === false) throw new SyncAuthError("Verify the signed-in account and reconnect before deleting its cloud data.");
+        setBusy(true);
+        try{
+            const { client, userId, generation } = await getVerifiedClient();
+            const result = await client.rpc("delete_my_app_data");
+            if(result.error) throw new Error("The account-scoped cloud deletion failed. Local data was not removed.");
+            assertOperationIdentity(userId, generation);
+            const resetGeneration = Number(result.data);
+            if(!Number.isSafeInteger(resetGeneration) || resetGeneration < 1){
+                throw new Error("Supabase did not confirm the account reset generation. Retry after checking the account state.");
+            }
+            return resetGeneration;
+        }finally{ setBusy(false); }
+    }
+
+    function finishLocalDataReset(resetGeneration){
+        const userId = accountId();
+        if(!userId || !Number.isSafeInteger(Number(resetGeneration)) || Number(resetGeneration) < 1){
+            throw new SyncAuthError("The account changed before the local reset could be recorded.");
+        }
+        const state = {
+            version:1,
+            userId,
+            resetGeneration:Number(resetGeneration),
+            requireInitialUploadConfirmation:true,
+            syncedAt:new Date().toISOString(),
+            baseline:{ subjects:{}, tasks:{}, settings:null, projectSubjects:{}, projectTopics:{}, projectTopicOrders:{}, tombstones:{} }
+        };
+        workspace.storage.setItem(SYNC_STATE_KEY, JSON.stringify(state));
+        setStatus("idle", "This account workspace is clean. Sign in on each other device and explicitly clear its old local workspace before syncing.");
+    }
+
+    window.IRON_MIND_CLOUD_SYNC = Object.freeze({
+        deleteAllData:deleteAllAccountData,
+        finishLocalDataReset
+    });
 
     function cancelPreview(){
         if(busy) return;

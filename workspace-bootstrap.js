@@ -416,9 +416,9 @@
         const workspace = createWorkspace(userId);
         window.IRON_MIND_WORKSPACE = workspace;
         try{
-            await loadClassicScript("./script.js?v=iron-mind-v5-account-workspaces");
+            await loadClassicScript("./script.js?v=iron-mind-safe-sync-deletions-v1");
             try{
-                await loadClassicScript("./supabase-sync.js?v=iron-mind-task-settings-sync-v2");
+                await loadClassicScript("./supabase-sync.js?v=iron-mind-safe-sync-deletions-v1");
             }catch(error){
                 // Cloud sync is optional; the local-first app must still start if this asset is unavailable offline.
             }

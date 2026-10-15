@@ -1,14 +1,14 @@
-const CACHE_NAME = "iron-mind-v5-account-workspaces";
+const CACHE_NAME = "iron-mind-v6-safe-sync-deletions";
 const urlsToCache = [
     "./",
     "./index.html",
     "./style.css?v=iron-mind-v5-account-workspaces",
-    "./script.js?v=iron-mind-v5-account-workspaces",
+    "./script.js?v=iron-mind-safe-sync-deletions-v1",
     "./manifest.json",
     "./supabase-config.js",
     "./supabase-config.production.js",
     "./supabase-auth.js",
-    "./supabase-sync.js?v=iron-mind-task-settings-sync-v2",
+    "./supabase-sync.js?v=iron-mind-safe-sync-deletions-v1",
     "./workspace-bootstrap.js",
     "./icons/icon-192.png",
     "./icons/icon-512.png",

@@ -24,6 +24,28 @@ let subjects =
     JSON.parse(workspaceStorage.getItem("ironMindSubjects"))
     || DEFAULT_SUBJECTS;
 
+function createTaskSubjectId(){
+    if(typeof window.crypto?.randomUUID === "function") return window.crypto.randomUUID();
+    const bytes = new Uint8Array(16);
+    window.crypto?.getRandomValues?.(bytes);
+    if(!bytes.some(Boolean)) for(let index = 0; index < bytes.length; index++) bytes[index] = Math.floor(Math.random() * 256);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map(value => value.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+let taskSubjectIdsAdded = false;
+subjects = subjects.map(subject => {
+    if(subject && typeof subject === "object" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(subject.id || "")) return subject;
+    taskSubjectIdsAdded = true;
+    return { ...subject, id:createTaskSubjectId() };
+});
+if(taskSubjectIdsAdded){
+    try{ workspaceStorage.setItem("ironMindSubjects", JSON.stringify(subjects)); }
+    catch(error){ /* Sync reports a storage failure; existing subject fields remain in memory. */ }
+}
+
 /* ================= STORAGE ================= */
 
 let tasks =
@@ -192,6 +214,7 @@ let appSettings = {
 };
 
 const RECYCLE_BIN_KEY = "ironMindRecycleBin";
+const CLOUD_TOMBSTONES_KEY = "ironMindCloudTombstones";
 const RECYCLE_BIN_RETENTION_OPTIONS = [7, 30, 60, 90];
 let recycleBinStorageReady = true;
 let recycleBinEntries = (() => {
@@ -434,9 +457,78 @@ function makeRecycleBinEntry(type, name, parent, payload){
     };
 }
 
+function normalizeTaskSubjectTombstoneName(value){
+    return String(value || "").trim().toLowerCase();
+}
+
+function recycleEntryCloudTombstones(entry, deleted, target){
+    const put = (type, id) => {
+        if(id === null || id === undefined || String(id) === "") return;
+        target[`${type}:${String(id)}`] = Boolean(deleted);
+    };
+    const payload = entry?.payload || {};
+    if(entry?.type === "task"){
+        put("task", payload.task?.id);
+    }else if(entry?.type === "subject"){
+        const subject = payload.subject;
+        put("task_subject", subject?.id || `name:${normalizeTaskSubjectTombstoneName(subject?.name)}`);
+        (payload.tasks || []).forEach(task => put("task", task?.id));
+    }else if(entry?.type === "projectSubject"){
+        put("project_subject", payload.subject?.id);
+        (payload.topics || []).forEach(topic => put("project_topic", topic?.id));
+    }else if(entry?.type === "topic"){
+        (payload.topics || []).forEach(topic => put("project_topic", topic?.id));
+    }
+}
+
+function recycleEntryWasRestored(entry, changes){
+    const values = new Map(changes);
+    const rowsFor = key => {
+        const value = values.get(key);
+        if(Array.isArray(value)) return value;
+        return null;
+    };
+    const includesId = (rows, id) => Boolean(rows && rows.some(row => String(row?.id) === String(id)));
+    const payload = entry?.payload || {};
+    if(entry?.type === "task") return includesId(rowsFor("ironMindTasks"), payload.task?.id);
+    if(entry?.type === "subject"){
+        const rows = rowsFor("ironMindSubjects");
+        return Boolean(rows && rows.some(row => row?.id === payload.subject?.id || normalizeTaskSubjectTombstoneName(row?.name) === normalizeTaskSubjectTombstoneName(payload.subject?.name)));
+    }
+    if(entry?.type === "projectSubject") return includesId(rowsFor("ironMindProjectSubjects"), payload.subject?.id);
+    if(entry?.type === "topic"){
+        const rows = rowsFor("ironMindProjectTopics");
+        return Boolean(rows && (payload.topics || []).length && (payload.topics || []).every(topic => includesId(rows, topic.id)));
+    }
+    return false;
+}
+
+function updateRecycleBinCloudTombstones(nextEntries, changes){
+    let markers = {};
+    const raw = workspaceStorage.getItem(CLOUD_TOMBSTONES_KEY);
+    if(raw !== null){
+        try{
+            markers = JSON.parse(raw);
+            if(!markers || typeof markers !== "object" || Array.isArray(markers)) throw new Error("Invalid tombstone state.");
+        }catch(error){ throw new Error("The sync deletion record is unreadable; no Recycle Bin changes were saved."); }
+    }
+    nextEntries.forEach(entry => recycleEntryCloudTombstones(entry, true, markers));
+    const nextIds = new Set(nextEntries.map(entry => entry?.id));
+    recycleBinEntries.filter(entry => !nextIds.has(entry?.id)).forEach(entry => {
+        if(recycleEntryWasRestored(entry, changes)) recycleEntryCloudTombstones(entry, false, markers);
+    });
+    return markers;
+}
+
 function persistRecycleBinAndStorage(nextEntries, changes = []){
     if(!recycleBinStorageReady) return false;
-    const writes = [...changes, [RECYCLE_BIN_KEY, nextEntries]];
+    let tombstones;
+    try{ tombstones = updateRecycleBinCloudTombstones(nextEntries, changes); }
+    catch(error){
+        if(typeof showToast === "function") showToast(error.message, "error");
+        return false;
+    }
+    const writes = [...changes, [RECYCLE_BIN_KEY, nextEntries], [CLOUD_TOMBSTONES_KEY, tombstones]];
     const snapshots = [];
     try{
         writes.forEach(([key]) => snapshots.push([key, workspaceStorage.getItem(key)]));
@@ -1079,8 +1171,13 @@ function importBackup(){
 }
 
 function deleteAllData(){
+    const workspace = window.IRON_MIND_WORKSPACE;
+    const accountEmail = workspace?.session?.user?.email;
+    const accountScoped = Boolean(!workspace?.isDeviceWorkspace && workspace?.userId === workspace?.authenticatedUserId);
     deleteConfirmTitle.textContent = "Delete All Data";
-    deleteConfirmMessage.textContent = "This will permanently remove all your data from IRON MIND.";
+    deleteConfirmMessage.textContent = accountScoped
+        ? `This permanently deletes IRON MIND app data from this local account workspace${accountEmail ? ` and the Supabase account ${accountEmail}` : " and its matching Supabase account"}. Your sign-in and account remain.`
+        : "This permanently removes IRON MIND app data from this device workspace. Signed-in account data is not affected.";
     deleteConfirmModal.classList.remove("hidden");
 
     const handleFirstConfirm = () => {
@@ -1089,7 +1186,9 @@ function deleteAllData(){
         cancelDeleteBtn.removeEventListener("click", handleFirstCancel);
 
         deleteConfirmTitle.textContent = "Final Confirmation";
-        deleteConfirmMessage.textContent = "This action cannot be undone. Are you absolutely sure you want to delete all data?";
+        deleteConfirmMessage.textContent = accountScoped
+            ? `Final confirmation: permanently delete this account’s synced app data and this device’s local app data? Authentication remains enabled. Old offline copies on other devices will be blocked from syncing until they are explicitly cleared.`
+            : "Final confirmation: permanently delete all IRON MIND app data in this device workspace? This cannot be undone.";
         deleteConfirmModal.classList.remove("hidden");
 
         const handleSecondConfirm = async () => {
@@ -1097,7 +1196,16 @@ function deleteAllData(){
             confirmDeleteBtn.removeEventListener("click", handleSecondConfirm);
             cancelDeleteBtn.removeEventListener("click", handleSecondCancel);
 
+            let cloudResetGeneration = null;
+            let cloudWasReset = false;
+            let cloudSync = null;
             try{
+                if(accountScoped){
+                    cloudSync = window.IRON_MIND_CLOUD_SYNC;
+                    if(typeof cloudSync?.deleteAllData !== "function") throw new Error("Account-wide deletion is unavailable until the current sync migration is installed. No local data was removed.");
+                    cloudResetGeneration = await cloudSync.deleteAllData();
+                    cloudWasReset = true;
+                }
                 if(window.indexedDB){
                     if(projectResourcesDbPromise){
                         try{ (await projectResourcesDbPromise).close(); }catch(error){ /* The database may not have opened. */ }
@@ -1105,12 +1213,13 @@ function deleteAllData(){
                     }
                     await deleteResourceDatabaseSafely();
                 }
-                for(let i = workspaceStorage.length - 1; i >= 0; i--){
-                    const key = workspaceStorage.key(i);
-                    if(key && key.startsWith("ironMind")) workspaceStorage.removeItem(key);
-                }
+                workspaceStorage.clear();
+                if(accountScoped) cloudSync.finishLocalDataReset(cloudResetGeneration);
             }catch(error){
-                showToast(error?.message || "Data could not be deleted safely. No local records were removed.", "error");
+                const message = cloudWasReset
+                    ? `Supabase app data was deleted, but local cleanup did not finish. Your remaining local data was kept where the browser allowed. Retry Delete All Data on this device before syncing. ${error?.message || ""}`
+                    : error?.message || "Data could not be deleted safely. No local records were removed.";
+                showToast(message, "error");
                 return;
             }
 
@@ -2353,6 +2462,7 @@ function saveSubject(){
             subjects[editingSubjectIndex].name;
 
         subjects[editingSubjectIndex] = {
+            id: subjects[editingSubjectIndex].id || createTaskSubjectId(),
             name: subjectName,
             priority: subjectPriority
         };
@@ -2377,6 +2487,7 @@ function saveSubject(){
     } else {
 
         subjects.push({
+            id: createTaskSubjectId(),
             name: subjectName,
             priority: subjectPriority
         });
