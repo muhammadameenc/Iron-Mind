@@ -3,6 +3,7 @@
     const workspace = window.IRON_MIND_WORKSPACE;
     const accountSection = document.getElementById("supabaseAccountContent");
     const configNotice = document.getElementById("supabaseAccountConfigNotice");
+    const sessionRetryButton = document.getElementById("supabaseSessionRetryButton");
     const authForm = document.getElementById("supabaseAuthForm");
     const signupVerificationForm = document.getElementById("supabaseSignupVerificationForm");
     const passwordUpdateForm = document.getElementById("supabasePasswordUpdateForm");
@@ -112,9 +113,11 @@
         session = nextSession || null;
         const user = session?.user || (workspace.authenticatedUserId ? { id:workspace.authenticatedUserId } : null);
         const signedIn = Boolean(user?.id);
-        configNotice.classList.toggle("hidden", !configured || workspace.authAvailable);
-        if(configured && !workspace.authAvailable){
-            configNotice.textContent = "Not signed in. Supabase could not verify an account session, so only the device workspace is open and account workspaces are locked.";
+        const verificationUnavailable = workspace.authVerificationState === "unavailable";
+        configNotice.classList.toggle("hidden", !configured || !verificationUnavailable);
+        sessionRetryButton?.classList.toggle("hidden", !configured || !verificationUnavailable);
+        if(configured && verificationUnavailable){
+            configNotice.textContent = "Supabase could not verify the saved account session yet. The device workspace is open and account workspaces remain locked until verification succeeds.";
         }
         authForm.classList.toggle("hidden", !configured || signedIn || recoveryMode || Boolean(pendingSignupEmail) || !workspace.authAvailable);
         signupVerificationForm?.classList.toggle("hidden", !configured || signedIn || recoveryMode || !pendingSignupEmail || !workspace.authAvailable);
@@ -355,6 +358,27 @@
             recoveryMode = true;
             setStatus("Choose a new password to finish resetting your account.");
             renderSession(event.detail.session);
+            return;
+        }
+        renderSession(event.detail?.session || null);
+        if(event.detail?.verificationState === "unavailable"){
+            setStatus("Supabase could not verify the saved session yet. The device workspace remains available; retry verification or sign in when the service is reachable.", true);
+        }else if(event.detail?.event === "SESSION_VERIFIED" && !event.detail?.session){
+            setStatus("No valid saved session was found. Sign in or create an account to continue.");
+        }
+    });
+
+    sessionRetryButton?.addEventListener("click", async () => {
+        if(busy) return;
+        setBusy(true);
+        setStatus("Verifying the saved account session…");
+        try{
+            const result = await workspace.retryAuthentication();
+            if(result === "signed-out") setStatus("No valid saved session was found. Sign in or create an account to continue.");
+        }catch(error){
+            setStatus("Supabase could not verify the saved session yet. The device workspace remains available; retry when the service is reachable.", true);
+        }finally{
+            setBusy(false);
         }
     });
 
@@ -367,9 +391,12 @@
     }
 
     renderSession(session);
-    if(!workspace.authAvailable){
+    if(workspace.authVerificationState === "unavailable"){
         configNotice.classList.remove("hidden");
-        setStatus("Not signed in. Supabase could not verify the saved session; the account workspace is locked. The device workspace remains available offline.", true);
+        setStatus("Supabase could not verify the saved session yet. The device workspace remains available; retry verification or sign in when the service is reachable.", true);
+    }else if(!workspace.authAvailable){
+        configNotice.classList.remove("hidden");
+        setStatus("Cloud authentication is unavailable. The device workspace remains available offline.", true);
     }else if(!session){
         setStatus("Sign in or create an account. Device data will remain in its separate workspace.");
     }

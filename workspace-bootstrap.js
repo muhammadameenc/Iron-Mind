@@ -30,10 +30,11 @@
     let currentSession = null;
     let authAvailable = false;
     let authError = null;
+    let authVerificationState = "unknown";
     let authListenerAttached = false;
     let startupAuthVerified = false;
     let applicationReady = false;
-    let authBootFailed = false;
+    let authRetryPromise = null;
     let pendingPasswordRecoveryEvent = false;
     let switchInProgress = false;
     let pendingCopySnapshot = null;
@@ -52,6 +53,22 @@
 
     function isRejectedAuthSession(error){
         return [400, 401, 403].includes(Number(error?.status));
+    }
+
+    function updateWorkspaceAuthState(){
+        if(!window.IRON_MIND_WORKSPACE) return;
+        window.IRON_MIND_WORKSPACE.session = currentSession;
+        window.IRON_MIND_WORKSPACE.authenticatedUserId = isUserId(currentSession?.user?.id) ? currentSession.user.id : null;
+        window.IRON_MIND_WORKSPACE.authAvailable = authAvailable;
+        window.IRON_MIND_WORKSPACE.authError = authError;
+        window.IRON_MIND_WORKSPACE.authVerificationState = authVerificationState;
+    }
+
+    function dispatchAuthState(event){
+        updateWorkspaceAuthState();
+        window.dispatchEvent(new CustomEvent("iron-mind-auth-session", {
+            detail:{ event, session:currentSession, verificationState:authVerificationState }
+        }));
     }
 
     function isDeviceWorkspaceOverride(){
@@ -245,11 +262,13 @@
             authConfigured:Boolean(window.IRON_MIND_SUPABASE_CONFIG?.url && window.IRON_MIND_SUPABASE_CONFIG?.publishableKey),
             authAvailable,
             authError,
+            authVerificationState,
             session:currentSession,
             getClient(){
                 if(!authClientPromise) return Promise.reject(authError || new Error("Cloud accounts are not configured."));
                 return authClientPromise;
             },
+            retryAuthentication(){ return retryAuthentication(); },
             async previewDeviceCopy(){
                 const targetUserId = isUserId(currentSession?.user?.id) ? currentSession.user.id : activeUserId;
                 if(!targetUserId) throw new Error("Sign in before copying device data into an account.");
@@ -373,11 +392,6 @@
             button.onclick = () => {
                 try{ sessionStorage.setItem(WORKSPACE_OVERRIDE_KEY, "device"); }
                 catch(error){ /* The current page can still open the device workspace. */ }
-                if(!authAvailable){
-                    authBootFailed = true;
-                    currentSession = null;
-                    pendingPasswordRecoveryEvent = false;
-                }
                 loadApplication(null, authAvailable ? currentSession : null, authAvailable);
             };
         }
@@ -438,11 +452,21 @@
         }
     }
 
+    function createAuthClient(){
+        return import(CLIENT_URL).then(module => {
+            if(typeof module.createClient !== "function") throw new Error("The Supabase client could not be loaded.");
+            authClient = module.createClient(window.IRON_MIND_SUPABASE_CONFIG.url.trim(), window.IRON_MIND_SUPABASE_CONFIG.publishableKey.trim(), {
+                auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, skipAutoInitialize:true }
+            });
+            attachAuthListener(authClient);
+            return authClient;
+        });
+    }
+
     function attachAuthListener(client){
         if(authListenerAttached) return;
         authListenerAttached = true;
         client.auth.onAuthStateChange((event, session) => {
-            if(authBootFailed) return;
             if(!startupAuthVerified || !applicationReady){
                 if(event === "PASSWORD_RECOVERY") pendingPasswordRecoveryEvent = true;
                 return;
@@ -451,23 +475,98 @@
             if(event === "PASSWORD_RECOVERY" && session?.user?.id !== currentSession?.user?.id) return;
             const previousUserId = isUserId(currentSession?.user?.id) ? currentSession.user.id : null;
             currentSession = session || null;
+            authAvailable = true;
+            authVerificationState = currentSession ? "verified" : "signed-out";
+            authError = null;
             if(event === "SIGNED_OUT") nativeStorage.removeItem(LAST_USER_KEY);
             else if(isUserId(session?.user?.id)) nativeStorage.setItem(LAST_USER_KEY, session.user.id);
             if(event !== "INITIAL_SESSION"){
                 try{ sessionStorage.removeItem(WORKSPACE_OVERRIDE_KEY); }catch(error){ /* Ignore unavailable session storage. */ }
             }
             const nextUserId = isUserId(session?.user?.id) ? session.user.id : null;
-            if(window.IRON_MIND_WORKSPACE){
-                window.IRON_MIND_WORKSPACE.session = currentSession;
-                window.IRON_MIND_WORKSPACE.authenticatedUserId = isUserId(session?.user?.id) ? session.user.id : null;
-                window.IRON_MIND_WORKSPACE.authAvailable = true;
-                window.IRON_MIND_WORKSPACE.authError = null;
-            }
-            window.dispatchEvent(new CustomEvent("iron-mind-auth-session", { detail:{ event, session:currentSession } }));
+            dispatchAuthState(event);
             if(event !== "INITIAL_SESSION" && nextUserId !== previousUserId && nextUserId !== activeUserId){
                 lockAndReload(nextUserId ? "Switching to this account’s local workspace…" : "Signed out. Opening the device workspace…");
             }
         });
+    }
+
+    async function verifyStoredSession(client, initializeClient = false){
+        if(initializeClient){
+            const initialization = await client.auth.initialize();
+            if(initialization?.error){
+                if(isRejectedAuthSession(initialization.error)) return { session:null, verificationState:"signed-out" };
+                throw initialization.error;
+            }
+        }
+
+        const stored = await client.auth.getSession();
+        if(stored.error){
+            if(isRejectedAuthSession(stored.error)) return { session:null, verificationState:"signed-out" };
+            throw stored.error;
+        }
+
+        const candidate = stored.data?.session || null;
+        const candidateUserId = candidate?.user?.id;
+        if(!candidate || !isUserId(candidateUserId)) return { session:null, verificationState:"signed-out" };
+
+        const verification = await client.auth.getUser();
+        if(verification.error){
+            if(isRejectedAuthSession(verification.error)) return { session:null, verificationState:"signed-out" };
+            throw verification.error;
+        }
+        const verifiedUser = verification.data?.user;
+        if(!isUserId(verifiedUser?.id) || verifiedUser.id !== candidateUserId){
+            throw new Error("The saved account could not be verified. Its account workspace remains locked.");
+        }
+        return { session:{ ...candidate, user:verifiedUser }, verificationState:"verified" };
+    }
+
+    function applyVerifiedStartupState(startupState){
+        currentSession = startupState.session;
+        authAvailable = true;
+        authVerificationState = startupState.verificationState;
+        authError = null;
+        startupAuthVerified = true;
+        if(isUserId(currentSession?.user?.id)) nativeStorage.setItem(LAST_USER_KEY, currentSession.user.id);
+        else nativeStorage.removeItem(LAST_USER_KEY);
+    }
+
+    async function retryAuthentication(){
+        if(authRetryPromise) return authRetryPromise;
+        authRetryPromise = (async () => {
+            try{
+                let client;
+                try{
+                    client = await authClientPromise;
+                }catch(error){
+                    authClientPromise = createAuthClient();
+                    client = await authClientPromise;
+                }
+                const startupState = await withBootTimeout(
+                    verifyStoredSession(client),
+                    "Account state could not be verified yet."
+                );
+                applyVerifiedStartupState(startupState);
+                dispatchAuthState("SESSION_VERIFIED");
+                if(isUserId(currentSession?.user?.id) && currentSession.user.id !== activeUserId){
+                    lockAndReload("Account verified. Opening this account’s local workspace…");
+                }
+                return startupState.verificationState;
+            }catch(error){
+                currentSession = null;
+                authAvailable = true;
+                authVerificationState = "unavailable";
+                authError = error;
+                startupAuthVerified = true;
+                nativeStorage.removeItem(LAST_USER_KEY);
+                dispatchAuthState("SESSION_UNAVAILABLE");
+                throw error;
+            }finally{
+                authRetryPromise = null;
+            }
+        })();
+        return authRetryPromise;
     }
 
     async function initialize(){
@@ -497,61 +596,20 @@
             typeof config.publishableKey === "string" && config.publishableKey.trim();
         let session = null;
         if(configured){
-            authClientPromise = import(CLIENT_URL).then(module => {
-                if(typeof module.createClient !== "function") throw new Error("The Supabase client could not be loaded.");
-                authClient = module.createClient(config.url.trim(), config.publishableKey.trim(), {
-                    auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, skipAutoInitialize:true }
-                });
-                attachAuthListener(authClient);
-                return authClient;
-            });
-            const startupStatePromise = authClientPromise.then(async client => {
-                const initialization = await client.auth.initialize();
-                if(initialization?.error){
-                    if(isRejectedAuthSession(initialization.error)) return { session:null, authAvailable:true };
-                    throw initialization.error;
-                }
-
-                const stored = await client.auth.getSession();
-                if(stored.error){
-                    if(isRejectedAuthSession(stored.error)) return { session:null, authAvailable:true };
-                    throw stored.error;
-                }
-
-                const candidate = stored.data?.session || null;
-                const candidateUserId = candidate?.user?.id;
-                if(!candidate || !isUserId(candidateUserId)) return { session:null, authAvailable:true };
-
-                const verification = await client.auth.getUser();
-                if(verification.error){
-                    if(isRejectedAuthSession(verification.error)) return { session:null, authAvailable:true };
-                    throw verification.error;
-                }
-                const verifiedUser = verification.data?.user;
-                if(!isUserId(verifiedUser?.id) || verifiedUser.id !== candidateUserId){
-                    throw new Error("The saved account could not be verified. Its account workspace remains locked.");
-                }
-                return { session:{ ...candidate, user:verifiedUser }, authAvailable:true };
-            });
+            authClientPromise = createAuthClient();
+            const startupStatePromise = authClientPromise.then(client => verifyStoredSession(client, true));
             try{
                 const startupState = await withBootTimeout(startupStatePromise, "Account state could not be verified yet.");
-                session = startupState.session;
-                authAvailable = startupState.authAvailable;
-                startupAuthVerified = true;
-                authError = null;
-                if(isUserId(session?.user?.id)) nativeStorage.setItem(LAST_USER_KEY, session.user.id);
-                else nativeStorage.removeItem(LAST_USER_KEY);
-                currentSession = session;
+                applyVerifiedStartupState(startupState);
+                session = currentSession;
             }catch(error){
                 authError = error;
-                authAvailable = false;
+                authAvailable = true;
                 currentSession = null;
-                authBootFailed = true;
+                authVerificationState = "unavailable";
+                startupAuthVerified = true;
                 pendingPasswordRecoveryEvent = false;
-                if(!isDeviceWorkspaceOverride()){
-                    showStatus("Supabase could not verify the saved account. Its account workspace is locked. Continue in the device workspace to use local data.", true, true);
-                    return;
-                }
+                nativeStorage.removeItem(LAST_USER_KEY);
             }
         }else{
             authError = new Error("Cloud accounts are not configured.");

@@ -299,6 +299,7 @@
                 <section id="supabaseAccountContent" class="settings-expandable cloud-account-content hidden" aria-label="Cloud account">
                     <p class="cloud-account-intro">Each account has a separate local workspace on this device. Existing device data stays separate unless you choose to copy it.</p>
                     <p id="supabaseAccountConfigNotice" class="cloud-account-notice" role="status">Supabase is not configured for this app origin. Use the local configuration for development, or add the exact deployment origin, Supabase Project URL, and publishable key to <code>supabase-config.production.js</code>.</p>
+                    <button id="supabaseSessionRetryButton" class="settings-action-button hidden" type="button">Retry account verification</button>
                     <form id="supabaseAuthForm" class="cloud-account-form hidden" novalidate>
                         <label for="supabaseAccountEmail">Email</label>
                         <input id="supabaseAccountEmail" name="email" type="email" autocomplete="email" required>
