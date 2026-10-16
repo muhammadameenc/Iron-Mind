@@ -634,10 +634,20 @@ test('independent task edits remain a conflict instead of last-write-wins', asyn
     phone.setLocalTaskData(phone.context.subjects.map(row => ({ ...row })), phone.context.tasks.map(row => ({ ...row, remarks:'independent phone edit' })));
     await laptop.click('cloudSyncNowButton');
     await phone.click('cloudSyncNowButton');
-    assert.match(phone.elements.get('cloudSyncStatus').textContent, /task changed differently/i);
+    const conflictStatus = phone.elements.get('cloudSyncStatus').textContent;
+    assert.match(conflictStatus, /task changed differently/i);
+    assert.match(conflictStatus, /record 41/);
+    assert.match(conflictStatus, /fields: remarks, status/);
+    assert.doesNotMatch(conflictStatus, /independent phone edit/);
+    assert.doesNotMatch(conflictStatus, /Completed/);
+    assert.doesNotMatch(conflictStatus, /Mechanics/);
+    assert.doesNotMatch(conflictStatus, /Book A/);
+    assert.equal(conflictStatus.includes('first'), false, 'remark contents must not appear in the diagnostic');
+    assert.match(laptop.elements.get('cloudSyncStatus').textContent, /Synced at/i);
     assert.equal(database.tasks[0].status, 'Completed');
     assert.equal(database.tasks[0].remarks, 'first', 'conflicting phone edit was not silently written');
     assert.equal(phone.context.tasks[0].remarks, 'independent phone edit', 'the local conflicting copy is retained');
+    assert.equal(phone.context.tasks[0].status, 'Planned', 'the phone copy is not overwritten by the cloud edit');
 });
 
 

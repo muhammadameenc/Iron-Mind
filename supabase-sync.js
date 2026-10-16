@@ -1007,6 +1007,25 @@
         };
     }
 
+    function differingCanonicalFieldNames(left, right){
+        const names = new Set([
+            ...Object.keys(left?.canonical && typeof left.canonical === "object" ? left.canonical : {}),
+            ...Object.keys(right?.canonical && typeof right.canonical === "object" ? right.canonical : {})
+        ]);
+        return [...names].filter(name => {
+            const localValue = left?.canonical ? left.canonical[name] : undefined;
+            const cloudValue = right?.canonical ? right.canonical[name] : undefined;
+            return JSON.stringify(stableValue(localValue)) !== JSON.stringify(stableValue(cloudValue));
+        }).sort();
+    }
+
+    function divergentChangeMessage(label, key, localRecord, cloudRecord){
+        if(label !== "task") return `A ${label} changed differently on this device and in the cloud. No changes were made.`;
+        const fields = differingCanonicalFieldNames(localRecord, cloudRecord);
+        const fieldPart = fields.length ? `; fields: ${fields.join(", ")}` : "";
+        return `A task changed differently on this device and in the cloud (record ${key}${fieldPart}). No changes were made.`;
+    }
+
     async function classifyRecords(label, local, cloud, baseline, restoreMissing = false){
         const push = new Set();
         const pull = new Set();
@@ -1045,7 +1064,7 @@
             const localChanged = localSignatures[key] !== baseSignatures[key];
             const cloudChanged = cloudSignatures[key] !== baseSignatures[key];
             if(localChanged && cloudChanged && localSignatures[key] !== cloudSignatures[key]){
-                throw new SyncConflictError(`A ${label} changed differently on this device and in the cloud. No changes were made.`);
+                throw new SyncConflictError(divergentChangeMessage(label, key, local.get(key), cloud.get(key)));
             }
             if(localChanged && !cloudChanged) push.add(key);
             else if(cloudChanged && !localChanged) pull.add(key);
