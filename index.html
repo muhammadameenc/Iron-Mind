@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=iron-mind-v5-account-workspaces">
+    <link rel="stylesheet" href="style.css?v=iron-mind-v3-equations">
     <link rel="stylesheet" href="./vendor/mathlive/mathlive-fonts.css">
     <link rel="stylesheet" href="./vendor/mathlive/mathlive-static.css">
     <link rel="icon" type="image/png" href="./iron-mind-icon.png">
@@ -295,64 +295,6 @@
             </div>
 
             <div class="settings-menu">
-                <button class="settings-menu-button" type="button" data-settings-toggle="supabaseAccountContent" aria-controls="supabaseAccountContent" aria-expanded="false"><span>☁ Account</span><span>⌄</span></button>
-                <section id="supabaseAccountContent" class="settings-expandable cloud-account-content hidden" aria-label="Cloud account">
-                    <p class="cloud-account-intro">Each account has a separate local workspace on this device. Existing device data stays separate unless you choose to copy it.</p>
-                    <p id="supabaseAccountConfigNotice" class="cloud-account-notice" role="status">Supabase is not configured for this app origin. Use the local configuration for development, or add the exact deployment origin, Supabase Project URL, and publishable key to <code>supabase-config.production.js</code>.</p>
-                    <button id="supabaseSessionRetryButton" class="settings-action-button hidden" type="button">Retry account verification</button>
-                    <form id="supabaseAuthForm" class="cloud-account-form hidden" novalidate>
-                        <label for="supabaseAccountEmail">Email</label>
-                        <input id="supabaseAccountEmail" name="email" type="email" autocomplete="email" required>
-                        <label for="supabaseAccountPassword">Password</label>
-                        <input id="supabaseAccountPassword" name="password" type="password" autocomplete="current-password" required>
-                        <div class="cloud-account-actions">
-                            <button class="settings-action-button" type="submit" data-cloud-auth-action="signin">Sign In</button>
-                            <button class="settings-action-button" type="submit" data-cloud-auth-action="signup">Create Account</button>
-                        </div>
-                        <button id="supabasePasswordResetButton" class="cloud-account-link" type="button">Send password reset email</button>
-                    </form>
-                    <form id="supabaseSignupVerificationForm" class="cloud-account-form hidden" novalidate>
-                        <p class="cloud-account-notice">Enter the verification code sent to <strong id="supabaseSignupVerificationEmail"></strong>.</p>
-                        <label for="supabaseSignupVerificationCode">Email verification code</label>
-                        <input id="supabaseSignupVerificationCode" name="token" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" required>
-                        <div class="cloud-account-actions">
-                            <button class="settings-action-button" type="submit">Verify Email</button>
-                            <button id="supabaseSignupResendCodeButton" class="settings-action-button" type="button">Resend Code</button>
-                        </div>
-                        <p id="supabaseSignupResendCooldown" class="cloud-account-notice" aria-live="off"></p>
-                        <button id="supabaseSignupBackButton" class="cloud-account-link" type="button">Back to sign in or use another email</button>
-                    </form>
-                    <form id="supabasePasswordUpdateForm" class="cloud-account-form hidden" novalidate>
-                        <label for="supabaseNewPassword">New password</label>
-                        <input id="supabaseNewPassword" name="password" type="password" autocomplete="new-password" required>
-                        <button class="settings-action-button" type="submit">Save New Password</button>
-                    </form>
-                    <div id="supabaseSignedInPanel" class="cloud-account-signed-in hidden">
-                        <p>Signed in as <strong id="supabaseSignedInIdentity"></strong></p>
-                        <p id="supabaseWorkspaceLabel" class="cloud-account-notice"></p>
-                        <section id="cloudSyncPanel" class="cloud-sync-panel hidden" aria-label="Tasks, settings, and Project subjects and topics cloud sync">
-                            <h3>Cloud sync: tasks, settings, and Projects</h3>
-                            <p id="cloudSyncStatus" class="cloud-account-notice" role="status" aria-live="polite" data-sync-state="idle">Not synced</p>
-                            <p id="cloudSyncAccount" class="cloud-sync-account"></p>
-                            <button id="cloudSyncNowButton" class="settings-action-button" type="button">Sync now</button>
-                            <div id="cloudSyncPreview" class="cloud-sync-preview hidden" aria-live="polite">
-                                <p id="cloudSyncPreviewDetails"></p>
-                                <ul id="cloudSyncPreviewRecords" class="cloud-sync-preview-list"></ul>
-                                <div class="cloud-account-actions">
-                                    <button id="cloudSyncConfirmButton" class="settings-action-button" type="button">Confirm upload</button>
-                                    <button id="cloudSyncCancelButton" class="settings-action-button" type="button">Cancel</button>
-                                </div>
-                            </div>
-                            <p class="cloud-sync-note">Tasks, settings, Project subjects, and nested topics sync when you choose Sync now. First uploads require confirmation. Confirmed deletions sync when safe; conflicts stop for review. Notes and files are not synchronized.</p>
-                        </section>
-                        <button id="copyDeviceWorkspaceButton" class="settings-action-button" type="button">Copy device workspace into this account</button>
-                        <button id="openDeviceWorkspaceButton" class="settings-action-button" type="button">Open device workspace</button>
-                        <button id="openAccountWorkspaceButton" class="settings-action-button hidden" type="button">Open account workspace</button>
-                        <button id="supabaseSignOutButton" class="settings-action-button" type="button">Sign Out</button>
-                    </div>
-                    <p id="supabaseAccountStatus" class="cloud-account-status" role="status" aria-live="polite"></p>
-                </section>
-
                 <button class="settings-menu-button" type="button" data-settings-toggle="dataManagementContent"><span>🗂 Data Management</span><span>⌄</span></button>
                 <div id="dataManagementContent" class="settings-expandable hidden">
                     <label for="autoDeleteSelect">Auto-delete Tasks</label>
@@ -659,7 +601,6 @@
 
     </template>
 
-    <script src="./supabase-config.js"></script>
     <script src="./vendor/mathlive/mathlive.min.js"></script>
     <script>
         if(window.MathfieldElement){
@@ -667,7 +608,7 @@
             window.MathfieldElement.soundsDirectory = null;
         }
     </script>
-    <script src="./workspace-bootstrap.js"></script>
+    <script src="script.js?v=iron-mind-v3-equations"></script>
 
     <script>
         if ("serviceWorker" in navigator) {

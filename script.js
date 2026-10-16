@@ -7,7 +7,6 @@
 /* ================= SUBJECTS ================= */
 
 const appHealthRuntimeIssues = [];
-const workspaceStorage = window.IRON_MIND_WORKSPACE.storage;
 window.addEventListener("error", event => {
     if(!event.filename) return;
     try{
@@ -21,35 +20,13 @@ window.addEventListener("unhandledrejection", () => appHealthRuntimeIssues.push(
 const DEFAULT_SUBJECTS = [];
 
 let subjects =
-    JSON.parse(workspaceStorage.getItem("ironMindSubjects"))
+    JSON.parse(localStorage.getItem("ironMindSubjects"))
     || DEFAULT_SUBJECTS;
-
-function createTaskSubjectId(){
-    if(typeof window.crypto?.randomUUID === "function") return window.crypto.randomUUID();
-    const bytes = new Uint8Array(16);
-    window.crypto?.getRandomValues?.(bytes);
-    if(!bytes.some(Boolean)) for(let index = 0; index < bytes.length; index++) bytes[index] = Math.floor(Math.random() * 256);
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = [...bytes].map(value => value.toString(16).padStart(2, "0")).join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-let taskSubjectIdsAdded = false;
-subjects = subjects.map(subject => {
-    if(subject && typeof subject === "object" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(subject.id || "")) return subject;
-    taskSubjectIdsAdded = true;
-    return { ...subject, id:createTaskSubjectId() };
-});
-if(taskSubjectIdsAdded){
-    try{ workspaceStorage.setItem("ironMindSubjects", JSON.stringify(subjects)); }
-    catch(error){ /* Sync reports a storage failure; existing subject fields remain in memory. */ }
-}
 
 /* ================= STORAGE ================= */
 
 let tasks =
-    JSON.parse(workspaceStorage.getItem("ironMindTasks"))
+    JSON.parse(localStorage.getItem("ironMindTasks"))
     || [];
 
 /* ================= GLOBAL VARIABLES ================= */
@@ -193,13 +170,13 @@ const defaultSettings = {
 
 function getStoredSettings(){
     try{
-        const stored = JSON.parse(workspaceStorage.getItem("ironMindSettings") || "{}");
+        const stored = JSON.parse(localStorage.getItem("ironMindSettings") || "{}");
         
         // Migrate old accent color themes to dark mode
         if (stored.theme === "purple" || stored.theme === "green" || stored.theme === "orange") {
             stored.theme = "dark";
             // Save migrated settings immediately
-            workspaceStorage.setItem("ironMindSettings", JSON.stringify(stored));
+            localStorage.setItem("ironMindSettings", JSON.stringify(stored));
         }
         
         return stored;
@@ -214,12 +191,11 @@ let appSettings = {
 };
 
 const RECYCLE_BIN_KEY = "ironMindRecycleBin";
-const CLOUD_TOMBSTONES_KEY = "ironMindCloudTombstones";
 const RECYCLE_BIN_RETENTION_OPTIONS = [7, 30, 60, 90];
 let recycleBinStorageReady = true;
 let recycleBinEntries = (() => {
     try{
-        const stored = JSON.parse(workspaceStorage.getItem(RECYCLE_BIN_KEY) || "[]");
+        const stored = JSON.parse(localStorage.getItem(RECYCLE_BIN_KEY) || "[]");
         if(!Array.isArray(stored)) throw new Error("Recycle Bin data is not an array.");
         if(stored.some(item => !item || typeof item !== "object" || Array.isArray(item))) throw new Error("Recycle Bin data contains an invalid record.");
         return stored;
@@ -231,19 +207,19 @@ let recycleBinEntries = (() => {
 if(!RECYCLE_BIN_RETENTION_OPTIONS.includes(Number(appSettings.recycleBinRetentionDays))){
     appSettings.recycleBinRetentionDays = 30;
 }
-if(workspaceStorage.getItem(RECYCLE_BIN_KEY) === null){
-    try{ workspaceStorage.setItem(RECYCLE_BIN_KEY, "[]"); }
+if(localStorage.getItem(RECYCLE_BIN_KEY) === null){
+    try{ localStorage.setItem(RECYCLE_BIN_KEY, "[]"); }
     catch(error){ recycleBinStorageReady = false; }
 }
 
 // One-time cache reset for users with old cached data
 (function migrateThemeSettings() {
     try {
-        const currentSettings = JSON.parse(workspaceStorage.getItem("ironMindSettings") || "{}");
+        const currentSettings = JSON.parse(localStorage.getItem("ironMindSettings") || "{}");
         const oldThemes = ["purple", "green", "orange"];
         if (oldThemes.includes(currentSettings.theme)) {
             currentSettings.theme = "dark";
-            workspaceStorage.setItem("ironMindSettings", JSON.stringify(currentSettings));
+            localStorage.setItem("ironMindSettings", JSON.stringify(currentSettings));
             appSettings.theme = "dark";
         }
     } catch (e) {
@@ -428,7 +404,7 @@ const cancelSubjectBtn =
 
 function saveTasks(){
 
-    workspaceStorage.setItem(
+    localStorage.setItem(
         "ironMindTasks",
         JSON.stringify(tasks)
     );
@@ -436,14 +412,14 @@ function saveTasks(){
 
 function saveSubjects(){
 
-    workspaceStorage.setItem(
+    localStorage.setItem(
         "ironMindSubjects",
         JSON.stringify(subjects)
     );
 }
 
 function saveSettings(){
-    workspaceStorage.setItem("ironMindSettings", JSON.stringify(appSettings));
+    localStorage.setItem("ironMindSettings", JSON.stringify(appSettings));
 }
 
 function makeRecycleBinEntry(type, name, parent, payload){
@@ -457,90 +433,21 @@ function makeRecycleBinEntry(type, name, parent, payload){
     };
 }
 
-function normalizeTaskSubjectTombstoneName(value){
-    return String(value || "").trim().toLowerCase();
-}
-
-function recycleEntryCloudTombstones(entry, deleted, target){
-    const put = (type, id) => {
-        if(id === null || id === undefined || String(id) === "") return;
-        target[`${type}:${String(id)}`] = Boolean(deleted);
-    };
-    const payload = entry?.payload || {};
-    if(entry?.type === "task"){
-        put("task", payload.task?.id);
-    }else if(entry?.type === "subject"){
-        const subject = payload.subject;
-        put("task_subject", subject?.id || `name:${normalizeTaskSubjectTombstoneName(subject?.name)}`);
-        (payload.tasks || []).forEach(task => put("task", task?.id));
-    }else if(entry?.type === "projectSubject"){
-        put("project_subject", payload.subject?.id);
-        (payload.topics || []).forEach(topic => put("project_topic", topic?.id));
-    }else if(entry?.type === "topic"){
-        (payload.topics || []).forEach(topic => put("project_topic", topic?.id));
-    }
-}
-
-function recycleEntryWasRestored(entry, changes){
-    const values = new Map(changes);
-    const rowsFor = key => {
-        const value = values.get(key);
-        if(Array.isArray(value)) return value;
-        return null;
-    };
-    const includesId = (rows, id) => Boolean(rows && rows.some(row => String(row?.id) === String(id)));
-    const payload = entry?.payload || {};
-    if(entry?.type === "task") return includesId(rowsFor("ironMindTasks"), payload.task?.id);
-    if(entry?.type === "subject"){
-        const rows = rowsFor("ironMindSubjects");
-        return Boolean(rows && rows.some(row => row?.id === payload.subject?.id || normalizeTaskSubjectTombstoneName(row?.name) === normalizeTaskSubjectTombstoneName(payload.subject?.name)));
-    }
-    if(entry?.type === "projectSubject") return includesId(rowsFor("ironMindProjectSubjects"), payload.subject?.id);
-    if(entry?.type === "topic"){
-        const rows = rowsFor("ironMindProjectTopics");
-        return Boolean(rows && (payload.topics || []).length && (payload.topics || []).every(topic => includesId(rows, topic.id)));
-    }
-    return false;
-}
-
-function updateRecycleBinCloudTombstones(nextEntries, changes){
-    let markers = {};
-    const raw = workspaceStorage.getItem(CLOUD_TOMBSTONES_KEY);
-    if(raw !== null){
-        try{
-            markers = JSON.parse(raw);
-            if(!markers || typeof markers !== "object" || Array.isArray(markers)) throw new Error("Invalid tombstone state.");
-        }catch(error){ throw new Error("The sync deletion record is unreadable; no Recycle Bin changes were saved."); }
-    }
-    nextEntries.forEach(entry => recycleEntryCloudTombstones(entry, true, markers));
-    const nextIds = new Set(nextEntries.map(entry => entry?.id));
-    recycleBinEntries.filter(entry => !nextIds.has(entry?.id)).forEach(entry => {
-        if(recycleEntryWasRestored(entry, changes)) recycleEntryCloudTombstones(entry, false, markers);
-    });
-    return markers;
-}
-
 function persistRecycleBinAndStorage(nextEntries, changes = []){
     if(!recycleBinStorageReady) return false;
-    let tombstones;
-    try{ tombstones = updateRecycleBinCloudTombstones(nextEntries, changes); }
-    catch(error){
-        if(typeof showToast === "function") showToast(error.message, "error");
-        return false;
-    }
-    const writes = [...changes, [RECYCLE_BIN_KEY, nextEntries], [CLOUD_TOMBSTONES_KEY, tombstones]];
+    const writes = [...changes, [RECYCLE_BIN_KEY, nextEntries]];
     const snapshots = [];
     try{
-        writes.forEach(([key]) => snapshots.push([key, workspaceStorage.getItem(key)]));
-        writes.forEach(([key, value]) => workspaceStorage.setItem(key, JSON.stringify(value)));
+        writes.forEach(([key]) => snapshots.push([key, localStorage.getItem(key)]));
+        writes.forEach(([key, value]) => localStorage.setItem(key, JSON.stringify(value)));
         recycleBinEntries = nextEntries;
         updateRecycleBinCount();
         return true;
     }catch(error){
         snapshots.forEach(([key, value]) => {
             try{
-                if(value === null) workspaceStorage.removeItem(key);
-                else workspaceStorage.setItem(key, value);
+                if(value === null) localStorage.removeItem(key);
+                else localStorage.setItem(key, value);
             }catch(restoreError){ /* Keep the original data in memory if storage rollback is blocked. */ }
         });
         return false;
@@ -596,7 +503,7 @@ function setBackupStatus(message){
 
 function readAllIronMindLocalData(){
     const data = {};
-    const storage = workspaceStorage;
+    const storage = window.localStorage;
     for(let index = 0; index < storage.length; index++){
         const key = storage.key(index);
         if(key && key.startsWith("ironMind")) data[key] = storage.getItem(key);
@@ -956,7 +863,7 @@ function snapshotIronMindLocalStorage(){
 }
 
 function replaceIronMindLocalStorage(data){
-    const storage = workspaceStorage;
+    const storage = window.localStorage;
     for(let index = storage.length - 1; index >= 0; index--){
         const key = storage.key(index);
         if(key && key.startsWith("ironMind")) storage.removeItem(key);
@@ -1006,7 +913,7 @@ function updateAfterSuccessfulRestore(message){
 function restoreLegacyTaskBackup(backup){
     const snapshot = snapshotIronMindLocalStorage();
     try{
-        Object.entries(backup.applicationData).forEach(([key, value]) => workspaceStorage.setItem(key, String(value)));
+        Object.entries(backup.applicationData).forEach(([key, value]) => window.localStorage.setItem(key, String(value)));
         failedBackupRestoreSnapshot = null;
         backupRecoveryButton?.classList.add("hidden");
         updateAfterSuccessfulRestore("Task data backup restored successfully.");
@@ -1171,13 +1078,8 @@ function importBackup(){
 }
 
 function deleteAllData(){
-    const workspace = window.IRON_MIND_WORKSPACE;
-    const accountEmail = workspace?.session?.user?.email;
-    const accountScoped = Boolean(!workspace?.isDeviceWorkspace && workspace?.userId === workspace?.authenticatedUserId);
     deleteConfirmTitle.textContent = "Delete All Data";
-    deleteConfirmMessage.textContent = accountScoped
-        ? `This permanently deletes IRON MIND app data from this local account workspace${accountEmail ? ` and the Supabase account ${accountEmail}` : " and its matching Supabase account"}. Your sign-in and account remain.`
-        : "This permanently removes IRON MIND app data from this device workspace. Signed-in account data is not affected.";
+    deleteConfirmMessage.textContent = "This will permanently remove all your data from IRON MIND.";
     deleteConfirmModal.classList.remove("hidden");
 
     const handleFirstConfirm = () => {
@@ -1186,41 +1088,19 @@ function deleteAllData(){
         cancelDeleteBtn.removeEventListener("click", handleFirstCancel);
 
         deleteConfirmTitle.textContent = "Final Confirmation";
-        deleteConfirmMessage.textContent = accountScoped
-            ? `Final confirmation: permanently delete this account’s synced app data and this device’s local app data? Authentication remains enabled. Old offline copies on other devices will be blocked from syncing until they are explicitly cleared.`
-            : "Final confirmation: permanently delete all IRON MIND app data in this device workspace? This cannot be undone.";
+        deleteConfirmMessage.textContent = "This action cannot be undone. Are you absolutely sure you want to delete all data?";
         deleteConfirmModal.classList.remove("hidden");
 
-        const handleSecondConfirm = async () => {
+        const handleSecondConfirm = () => {
             closeDeleteConfirmModal();
             confirmDeleteBtn.removeEventListener("click", handleSecondConfirm);
             cancelDeleteBtn.removeEventListener("click", handleSecondCancel);
 
-            let cloudResetGeneration = null;
-            let cloudWasReset = false;
-            let cloudSync = null;
-            try{
-                if(accountScoped){
-                    cloudSync = window.IRON_MIND_CLOUD_SYNC;
-                    if(typeof cloudSync?.deleteAllData !== "function") throw new Error("Account-wide deletion is unavailable until the current sync migration is installed. No local data was removed.");
-                    cloudResetGeneration = await cloudSync.deleteAllData();
-                    cloudWasReset = true;
+            for(let i = localStorage.length - 1; i >= 0; i--){
+                const key = localStorage.key(i);
+                if(key && key.startsWith("ironMind")){
+                    localStorage.removeItem(key);
                 }
-                if(window.indexedDB){
-                    if(projectResourcesDbPromise){
-                        try{ (await projectResourcesDbPromise).close(); }catch(error){ /* The database may not have opened. */ }
-                        projectResourcesDbPromise = null;
-                    }
-                    await deleteResourceDatabaseSafely();
-                }
-                workspaceStorage.clear();
-                if(accountScoped) cloudSync.finishLocalDataReset(cloudResetGeneration);
-            }catch(error){
-                const message = cloudWasReset
-                    ? `Supabase app data was deleted, but local cleanup did not finish. Your remaining local data was kept where the browser allowed. Retry Delete All Data on this device before syncing. ${error?.message || ""}`
-                    : error?.message || "Data could not be deleted safely. No local records were removed.";
-                showToast(message, "error");
-                return;
             }
 
             showToast("All data deleted successfully.", "success");
@@ -2462,7 +2342,6 @@ function saveSubject(){
             subjects[editingSubjectIndex].name;
 
         subjects[editingSubjectIndex] = {
-            id: subjects[editingSubjectIndex].id || createTaskSubjectId(),
             name: subjectName,
             priority: subjectPriority
         };
@@ -2487,7 +2366,6 @@ function saveSubject(){
     } else {
 
         subjects.push({
-            id: createTaskSubjectId(),
             name: subjectName,
             priority: subjectPriority
         });
@@ -4208,7 +4086,7 @@ initNavigation();
 
 function readProjectStorage(key, fallback){
     try{
-        const value = workspaceStorage.getItem(key);
+        const value = localStorage.getItem(key);
         return value ? JSON.parse(value) : fallback;
     }catch(error){
         return fallback;
@@ -4527,7 +4405,7 @@ if(!projectSubjectIds || typeof projectSubjectIds !== "object" || Array.isArray(
 
 const PROJECT_SUBJECTS_KEY = "ironMindProjectSubjects";
 const PROJECT_NOTES_KEY = "ironMindProjectNotes";
-const PROJECT_RESOURCES_DB_NAME = window.IRON_MIND_WORKSPACE.resourceDatabaseName;
+const PROJECT_RESOURCES_DB_NAME = "ironMindProjectResources";
 const PROJECT_RESOURCES_DB_VERSION = 1;
 const PROJECT_RESOURCE_STORE = "resources";
 const PROJECT_RESOURCE_EXTENSIONS = new Set(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "png", "jpg", "jpeg"]);
@@ -4582,21 +4460,21 @@ const projectDialogPanel = projectDialog.querySelector(".project-dialog-panel");
 const projectDialogContent = document.getElementById("projectDialogContent");
 
 function saveProjectTopics(){
-    workspaceStorage.setItem("ironMindProjectTopics", JSON.stringify(projectTopicRecords));
+    localStorage.setItem("ironMindProjectTopics", JSON.stringify(projectTopicRecords));
 }
 
 function saveProjectStorageBatch(entries){
     let snapshots;
     try{
-        snapshots = entries.map(([key]) => [key, workspaceStorage.getItem(key)]);
-        entries.forEach(([key, value]) => workspaceStorage.setItem(key, JSON.stringify(value)));
+        snapshots = entries.map(([key]) => [key, localStorage.getItem(key)]);
+        entries.forEach(([key, value]) => localStorage.setItem(key, JSON.stringify(value)));
         return true;
     }catch(error){
         if(snapshots){
             snapshots.forEach(([key, value]) => {
                 try{
-                    if(value === null) workspaceStorage.removeItem(key);
-                    else workspaceStorage.setItem(key, value);
+                    if(value === null) localStorage.removeItem(key);
+                    else localStorage.setItem(key, value);
                 }catch(restoreError){ /* Keep the original in-memory records if storage is unavailable. */ }
             });
         }
@@ -4605,13 +4483,13 @@ function saveProjectStorageBatch(entries){
 }
 
 function saveProjectSubjectIds(){
-    workspaceStorage.setItem("ironMindProjectSubjectIds", JSON.stringify(projectSubjectIds));
+    localStorage.setItem("ironMindProjectSubjectIds", JSON.stringify(projectSubjectIds));
 }
 
 function saveProjectSubjects(records = projectSubjectRecords){
     if(!projectSubjectStorageReady) return false;
     try{
-        workspaceStorage.setItem(PROJECT_SUBJECTS_KEY, JSON.stringify(records));
+        localStorage.setItem(PROJECT_SUBJECTS_KEY, JSON.stringify(records));
         return true;
     }catch(error){
         projectSubjectStorageReady = false;
@@ -4622,7 +4500,7 @@ function saveProjectSubjects(records = projectSubjectRecords){
 function saveProjectExpandedState(){
     if(!projectState.subjectId) return;
     projectExpandedBySubject[projectState.subjectId] = [...projectState.expandedIds];
-    workspaceStorage.setItem("ironMindProjectExpandedTopics", JSON.stringify(projectExpandedBySubject));
+    localStorage.setItem("ironMindProjectExpandedTopics", JSON.stringify(projectExpandedBySubject));
 }
 
 function projectSubjects(){
@@ -4656,7 +4534,7 @@ function getProjectSubjectId(subject, createIfMissing = true){
 function loadProjectSubjects(){
     let storedValue;
     try{
-        storedValue = workspaceStorage.getItem(PROJECT_SUBJECTS_KEY);
+        storedValue = localStorage.getItem(PROJECT_SUBJECTS_KEY);
     }catch(error){
         projectSubjectStorageReady = false;
         return [];
@@ -4681,7 +4559,7 @@ function loadProjectSubjects(){
         });
         if(normalizedRecords.some((subject, index) => subject !== storedRecords[index])){
             try{
-                workspaceStorage.setItem(PROJECT_SUBJECTS_KEY, JSON.stringify(normalizedRecords));
+                localStorage.setItem(PROJECT_SUBJECTS_KEY, JSON.stringify(normalizedRecords));
             }catch(error){
                 projectSubjectStorageReady = false;
             }
@@ -4777,7 +4655,7 @@ function escapeProjectHtml(value){
 function saveProjectNotes(records = projectNoteRecords){
     if(!projectNoteStorageReady) return false;
     try{
-        workspaceStorage.setItem(PROJECT_NOTES_KEY, JSON.stringify(records));
+        localStorage.setItem(PROJECT_NOTES_KEY, JSON.stringify(records));
         return true;
     }catch(error){
         projectNoteStorageReady = false;
@@ -4788,7 +4666,7 @@ function saveProjectNotes(records = projectNoteRecords){
 function loadProjectNotes(){
     let storedValue;
     try{
-        storedValue = workspaceStorage.getItem(PROJECT_NOTES_KEY);
+        storedValue = localStorage.getItem(PROJECT_NOTES_KEY);
     }catch(error){
         projectNoteStorageReady = false;
         return [];
@@ -4840,7 +4718,7 @@ function loadProjectNotes(){
 
     if(recordsNeedNormalization && projectNoteStorageReady){
         try{
-            workspaceStorage.setItem(PROJECT_NOTES_KEY, JSON.stringify(normalizedRecords));
+            localStorage.setItem(PROJECT_NOTES_KEY, JSON.stringify(normalizedRecords));
         }catch(error){
             projectNoteStorageReady = false;
         }
@@ -6625,10 +6503,10 @@ function handleProjectResourceAction(actionButton, owner){
 function projectNoteImageStorageAvailable(dataUrlLength){
     try{
         let storedCharacters = 0;
-        for(let index = 0; index < workspaceStorage.length; index++){
-            const key = workspaceStorage.key(index);
+        for(let index = 0; index < localStorage.length; index++){
+            const key = localStorage.key(index);
             if(key === null) continue;
-            storedCharacters += key.length + (workspaceStorage.getItem(key) || "").length;
+            storedCharacters += key.length + (localStorage.getItem(key) || "").length;
         }
         const estimatedBytes = (storedCharacters + dataUrlLength + 512) * 2;
         return estimatedBytes <= PROJECT_NOTE_STORAGE_SAFE_BYTES;
@@ -8848,7 +8726,7 @@ function checkAppHealthLocalStorage(){
     let missing = 0;
     let invalid = 0;
     try{
-        const storage = workspaceStorage;
+        const storage = window.localStorage;
         expectedKeys.forEach(([key, validate]) => {
             const rawValue = storage.getItem(key);
             if(rawValue === null){ missing += 1; return; }

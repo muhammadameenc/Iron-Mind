@@ -1,15 +1,10 @@
-const CACHE_NAME = "iron-mind-v6-safe-sync-deletions";
+const CACHE_NAME = "iron-mind-v3-equations";
 const urlsToCache = [
     "./",
     "./index.html",
-    "./style.css?v=iron-mind-v5-account-workspaces",
-    "./script.js?v=iron-mind-safe-sync-deletions-v1",
+    "./style.css?v=iron-mind-v3-equations",
+    "./script.js?v=iron-mind-v3-equations",
     "./manifest.json",
-    "./supabase-config.js",
-    "./supabase-config.production.js",
-    "./supabase-auth.js",
-    "./supabase-sync.js?v=iron-mind-safe-sync-deletions-v1",
-    "./workspace-bootstrap.js",
     "./icons/icon-192.png",
     "./icons/icon-512.png",
     "./vendor/mathlive/mathlive.min.js",
@@ -37,8 +32,6 @@ const urlsToCache = [
     "./vendor/mathlive/fonts/KaTeX_Typewriter-Regular.woff2",
     "./vendor/mathlive/LICENSE.txt"
 ];
-const cacheableUrls = new Set(urlsToCache.map(url => new URL(url, self.location.href).href));
-const cacheablePaths = new Set(urlsToCache.map(url => new URL(url, self.location.href).pathname));
 
 self.addEventListener("install", event => {
     event.waitUntil(
@@ -61,19 +54,22 @@ self.addEventListener("activate", event => {
 });
 
 self.addEventListener("fetch", event => {
-    const requestUrl = new URL(event.request.url);
-    if(event.request.method !== "GET" || requestUrl.origin !== self.location.origin || !cacheablePaths.has(requestUrl.pathname)) return;
-
     event.respondWith(
-        fetch(event.request).then(networkResponse => {
-            // Cache only the explicit static application assets listed above.
-            if(networkResponse?.status === 200 && cacheableUrls.has(event.request.url)){
-                const responseClone = networkResponse.clone();
-                caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseClone));
-            }
-            return networkResponse;
-        }).catch(async () => {
-            return (await caches.match(event.request)) || caches.match(event.request, { ignoreSearch:true });
+        caches.match(event.request).then(cachedResponse => {
+            // Network-first strategy to always get latest updates
+            return fetch(event.request).then(networkResponse => {
+                // Update the cache with the new response
+                if (networkResponse && networkResponse.status === 200 && event.request.method === "GET") {
+                    const responseClone = networkResponse.clone();
+                    caches.open(CACHE_NAME).then(cache => {
+                        cache.put(event.request, responseClone);
+                    });
+                }
+                return networkResponse;
+            }).catch(() => {
+                // Fallback to cache if network fails
+                return cachedResponse;
+            });
         })
     );
 });
